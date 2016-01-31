@@ -1,4 +1,7 @@
-{-# LANGUAGE CPP, ImplicitParams #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-
 (c) The University of Glasgow 2006-2012
 (c) The GRASP Project, Glasgow University, 1992-1998
@@ -79,6 +82,9 @@ module Outputable (
         pprTrace, pprTraceIt, warnPprTrace, pprSTrace,
         trace, pgmError, panic, sorry, assertPanic,
         pprDebugAndThen,
+
+        -- * Re-exported
+        HasCallStack,
     ) where
 
 import {-# SOURCE #-}   DynFlags( DynFlags,
@@ -116,8 +122,9 @@ import Data.Graph (SCC(..))
 
 import GHC.Fingerprint
 import GHC.Show         ( showMultiLineString )
+import GHC.Exts (Constraint)
 #if __GLASGOW_HASKELL__ > 710
-import GHC.Stack
+import GHC.Exception (CallStack, prettyCallStackLines)
 #endif
 
 {-
@@ -1066,9 +1073,21 @@ doOrDoes _   = text "do"
 ************************************************************************
 -}
 
-pprPanic :: String -> SDoc -> a
+#if __GLASGOW_HASKELL__ > 710
+type HasCallStack = ((?callStack :: CallStack) :: Constraint)
+
+pprCallStack :: (?callStack :: CallStack) => SDoc
+pprCallStack = vcat $ map text $ prettyCallStackLines ?callStack
+#else
+type HasCallStack = (() :: Constraint)
+
+pprCallStack :: SDoc
+pprCallStack = empty
+#endif
+
+pprPanic :: HasCallStack => String -> SDoc -> a
 -- ^ Throw an exception saying "bug in GHC"
-pprPanic    = panicDoc
+pprPanic msg doc  = panicDoc msg (pprCallStack $$ doc)
 
 pprSorry :: String -> SDoc -> a
 -- ^ Throw an exception saying "this isn't finished yet"
@@ -1094,11 +1113,11 @@ pprTraceIt desc x = pprTrace desc (ppr x) x
 -- | If debug output is on, show some 'SDoc' on the screen along
 -- with a call stack when available.
 #if __GLASGOW_HASKELL__ > 710
-pprSTrace :: (?callStack :: CallStack) => SDoc -> a -> a
-pprSTrace = pprTrace (prettyCallStack ?callStack)
+pprSTrace :: HasCallStack => String -> SDoc -> a -> a
+pprSTrace msg doc = pprTrace msg (pprCallStack $$ doc)
 #else
-pprSTrace :: SDoc -> a -> a
-pprSTrace = pprTrace "no callstack info"
+pprSTrace :: String -> SDoc -> a -> a
+pprSTrace msg doc = pprTrace msg (text "no callstack info" $$ doc)
 #endif
 
 warnPprTrace :: Bool -> String -> Int -> SDoc -> a -> a
@@ -1115,11 +1134,11 @@ warnPprTrace True   file  line  msg x
 -- | Panic with an assertation failure, recording the given file and
 -- line number. Should typically be accessed with the ASSERT family of macros
 #if __GLASGOW_HASKELL__ > 710
-assertPprPanic :: (?callStack :: CallStack) => String -> Int -> SDoc -> a
+assertPprPanic :: HasCallStack => String -> Int -> SDoc -> a
 assertPprPanic _file _line msg
   = pprPanic "ASSERT failed!" doc
   where
-    doc = sep [ text (prettyCallStack ?callStack)
+    doc = sep [ pprCallStack
               , msg ]
 #else
 assertPprPanic :: String -> Int -> SDoc -> a
