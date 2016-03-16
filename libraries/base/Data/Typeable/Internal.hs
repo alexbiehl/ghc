@@ -337,10 +337,8 @@ instance Show (TypeRep (a :: k)) where
     | otherwise =
       showParen (p > 9) $
       showsPrec 8 f .
-      space .
+      showChar ' ' .
       showsPrec 9 x
-    where
-      space = showChar ' '
 
 instance Show TypeRepX where
   showsPrec p (TypeRepX ty) = showsPrec p ty
