@@ -20,7 +20,7 @@ module TysPrim(
         kKiVar,
 
         -- Kind constructors...
-        tYPETyConName, unliftedTypeKindTyConName,
+        tYPETyCon, tYPETyConName, unliftedTypeKindTyConName,
 
         -- Kinds
         tYPE,
