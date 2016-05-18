@@ -5577,7 +5577,7 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
             break;
 #        endif
 
-#if x86_64_HOST_ARCH
+#ifdef x86_64_HOST_ARCH
       case R_X86_64_64:
           *(Elf64_Xword *)P = value;
           break;
@@ -5857,7 +5857,7 @@ static int ocAllocateSymbolExtras_ELF( ObjectCode *oc )
   *) add still more sanity checks.
 */
 
-#if x86_64_HOST_ARCH || powerpc64_HOST_ARCH
+#if defined(x86_64_HOST_ARCH) || defined(powerpc64_HOST_ARCH)
 #define mach_header mach_header_64
 #define segment_command segment_command_64
 #define section section_64
@@ -5959,7 +5959,7 @@ ocVerifyImage_MachO(ObjectCode * oc)
 
     IF_DEBUG(linker, debugBelch("ocVerifyImage_MachO: start\n"));
 
-#if x86_64_HOST_ARCH || powerpc64_HOST_ARCH
+#if defined(x86_64_HOST_ARCH) || defined (powerpc64_HOST_ARCH)
     if(header->magic != MH_MAGIC_64) {
         errorBelch("Could not load image %s: bad magic!\n"
                    "  Expected %08x (64bit), got %08x%s\n",
@@ -5996,7 +5996,7 @@ resolveImports(
 
     IF_DEBUG(linker, debugBelch("resolveImports: start\n"));
 
-#if i386_HOST_ARCH
+#ifdef i386_HOST_ARCH
     int isJumpTable = 0;
 
     if (strcmp(sect->sectname,"__jump_table") == 0) {
@@ -6033,7 +6033,7 @@ resolveImports(
         }
         ASSERT(addr);
 
-#if i386_HOST_ARCH
+#ifdef i386_HOST_ARCH
         if (isJumpTable) {
             checkProddableBlock(oc,image + sect->offset + i*itemSize, 5);
 
@@ -7033,7 +7033,7 @@ machoGetMisalignment( FILE * f )
     }
     fseek(f, -sizeof(header), SEEK_CUR);
 
-#if x86_64_HOST_ARCH || powerpc64_HOST_ARCH
+#if defined(x86_64_HOST_ARCH) || defined(powerpc64_HOST_ARCH)
     if(header.magic != MH_MAGIC_64) {
         barf("Bad magic. Expected: %08x, got: %08x.",
              MH_MAGIC_64, header.magic);

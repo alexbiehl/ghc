@@ -14,7 +14,7 @@
 #ifndef SMP_H
 #define SMP_H
 
-#if arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv6)
+#if defined(arm_HOST_ARCH) && defined(arm_HOST_ARCH_PRE_ARMv6)
 void arm_atomic_spin_lock(void);
 void arm_atomic_spin_unlock(void);
 #endif
@@ -110,7 +110,7 @@ xchg(StgPtr p, StgWord w)
 #if defined(NOSMP)
     result = *p;
     *p = w;
-#elif i386_HOST_ARCH || x86_64_HOST_ARCH
+#elif defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
     result = w;
     __asm__ __volatile__ (
         // NB: the xchg instruction is implicitly locked, so we do not
@@ -119,20 +119,21 @@ xchg(StgPtr p, StgWord w)
           :"+r" (result), "+m" (*p)
           : /* no input-only operands */
         );
-#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+#elif defined(powerpc_HOST_ARCH) || defined(powerpc64_HOST_ARCH) \
+		|| defined(powerpc64le_HOST_ARCH)
     result = __sync_lock_test_and_set(p, w);
-#elif sparc_HOST_ARCH
+#elif defined(sparc_HOST_ARCH)
     result = w;
     __asm__ __volatile__ (
         "swap %1,%0"
         : "+r" (result), "+m" (*p)
         : /* no input-only operands */
       );
-#elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv6)
+#elif defined(arm_HOST_ARCH) && defined(arm_HOST_ARCH_PRE_ARMv6)
     __asm__ __volatile__ ("swp %0, %1, [%2]"
                          : "=&r" (result)
                          : "r" (w), "r" (p) : "memory");
-#elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv6)
+#elif defined(arm_HOST_ARCH) && !defined(arm_HOST_ARCH_PRE_ARMv6)
     // swp instruction which is used in pre-ARMv6 code above
     // is deprecated in AMRv6 and later. ARM, Ltd. *highly* recommends
     // to use ldrex/strex instruction pair for the same purpose
@@ -151,8 +152,8 @@ xchg(StgPtr p, StgWord w)
                           : "r" (w), "r" (p)
                           : "memory"
                           );
-#elif aarch64_HOST_ARCH
-    StgWord tmp; 
+#elif defined(aarch64_HOST_ARCH)
+    StgWord tmp;
     __asm__ __volatile__ (
                           "1:    ldaxr  %0, [%3]\n"
                           "      stlxr  %w1, %2, [%3]\n"
@@ -182,15 +183,16 @@ cas(StgVolatilePtr p, StgWord o, StgWord n)
         *p = n;
     }
     return result;
-#elif i386_HOST_ARCH || x86_64_HOST_ARCH
+#elif defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
     __asm__ __volatile__ (
           "lock\ncmpxchg %3,%1"
           :"=a"(o), "+m" (*(volatile unsigned int *)p)
           :"0" (o), "r" (n));
     return o;
-#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+#elif defined(powerpc_HOST_ARCH) || defined(powerpc64_HOST_ARCH) \
+		|| defined(powerpc64le_HOST_ARCH)
     return __sync_val_compare_and_swap(p, o, n);
-#elif sparc_HOST_ARCH
+#elif defined(sparc_HOST_ARCH)
     __asm__ __volatile__ (
         "cas [%1], %2, %0"
         : "+r" (n)
@@ -198,14 +200,14 @@ cas(StgVolatilePtr p, StgWord o, StgWord n)
         : "memory"
     );
     return n;
-#elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv6)
+#elif defined(arm_HOST_ARCH) && defined(arm_HOST_ARCH_PRE_ARMv6)
     StgWord r;
     arm_atomic_spin_lock();
     r  = *p;
     if (r == o) { *p = n; }
     arm_atomic_spin_unlock();
     return r;
-#elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv6)
+#elif defined(arm_HOST_ARCH) && !defined(arm_HOST_ARCH_PRE_ARMv6)
     StgWord result,tmp;
 
     __asm__ __volatile__(
@@ -225,7 +227,7 @@ cas(StgVolatilePtr p, StgWord o, StgWord n)
                 : "cc","memory");
 
     return result;
-#elif aarch64_HOST_ARCH
+#elif defined(aarch64_HOST_ARCH)
     // Don't think we actually use tmp here, but leaving
     // it for consistent numbering
     StgWord result,tmp;
@@ -262,7 +264,8 @@ atomic_inc(StgVolatilePtr p, StgWord incr)
             "+r" (r), "+m" (*p):
     );
     return r + incr;
-#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+#elif defined(powerpc_HOST_ARCH) || defined(powerpc64_HOST_ARCH) \
+        || defined(powerpc64le_HOST_ARCH)
     return __sync_add_and_fetch(p, incr);
 #else
     StgWord old, new_;
@@ -285,7 +288,8 @@ atomic_dec(StgVolatilePtr p)
             "+r" (r), "+m" (*p):
     );
     return r-1;
-#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+#elif defined(powerpc_HOST_ARCH) || defined(powerpc64_HOST_ARCH) \
+        || defined(powerpc64le_HOST_ARCH)
     return __sync_sub_and_fetch(p, (StgWord) 1);
 #else
     StgWord old, new_;
@@ -330,14 +334,15 @@ EXTERN_INLINE void
 write_barrier(void) {
 #if defined(NOSMP)
     return;
-#elif i386_HOST_ARCH || x86_64_HOST_ARCH
+#elif defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
     __asm__ __volatile__ ("" : : : "memory");
-#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+#elif defined(powerpc_HOST_ARCH) || defined(powerpc64_HOST_ARCH) \
+		|| defined(powerpc64le_HOST_ARCH)
     __asm__ __volatile__ ("lwsync" : : : "memory");
-#elif sparc_HOST_ARCH
+#elif defined(sparc_HOST_ARCH)
     /* Sparc in TSO mode does not require store/store barriers. */
     __asm__ __volatile__ ("" : : : "memory");
-#elif (arm_HOST_ARCH) || aarch64_HOST_ARCH
+#elif defined(arm_HOST_ARCH) || defined(aarch64_HOST_ARCH)
     __asm__ __volatile__ ("dmb  st" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture
@@ -348,17 +353,18 @@ EXTERN_INLINE void
 store_load_barrier(void) {
 #if defined(NOSMP)
     return;
-#elif i386_HOST_ARCH
+#elif defined(i386_HOST_ARCH)
     __asm__ __volatile__ ("lock; addl $0,0(%%esp)" : : : "memory");
-#elif x86_64_HOST_ARCH
+#elif defined(x86_64_HOST_ARCH)
     __asm__ __volatile__ ("lock; addq $0,0(%%rsp)" : : : "memory");
-#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+#elif defined(powerpc_HOST_ARCH) || defined(powerpc64_HOST_ARCH) \
+		|| defined(powerpc64le_HOST_ARCH)
     __asm__ __volatile__ ("sync" : : : "memory");
-#elif sparc_HOST_ARCH
+#elif defined(sparc_HOST_ARCH)
     __asm__ __volatile__ ("membar #StoreLoad" : : : "memory");
-#elif arm_HOST_ARCH
+#elif defined(arm_HOST_ARCH)
     __asm__ __volatile__ ("dmb" : : : "memory");
-#elif aarch64_HOST_ARCH
+#elif defined(aarch64_HOST_ARCH)
     __asm__ __volatile__ ("dmb sy" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture
@@ -369,18 +375,19 @@ EXTERN_INLINE void
 load_load_barrier(void) {
 #if defined(NOSMP)
     return;
-#elif i386_HOST_ARCH
+#elif defined(i386_HOST_ARCH)
     __asm__ __volatile__ ("" : : : "memory");
-#elif x86_64_HOST_ARCH
+#elif defined(x86_64_HOST_ARCH)
     __asm__ __volatile__ ("" : : : "memory");
-#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+#elif defined(powerpc_HOST_ARCH) || defined(powerpc64_HOST_ARCH) \
+		|| defined(powerpc64le_HOST_ARCH)
     __asm__ __volatile__ ("lwsync" : : : "memory");
-#elif sparc_HOST_ARCH
+#elif defined(sparc_HOST_ARCH)
     /* Sparc in TSO mode does not require load/load barriers. */
     __asm__ __volatile__ ("" : : : "memory");
-#elif arm_HOST_ARCH
+#elif defined(arm_HOST_ARCH)
     __asm__ __volatile__ ("dmb" : : : "memory");
-#elif aarch64_HOST_ARCH
+#elif defined(aarch64_HOST_ARCH)
     __asm__ __volatile__ ("dmb sy" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture

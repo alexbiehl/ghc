@@ -43,6 +43,9 @@ Haskell side.
 #include "Stable.h"
 
 #if defined(USE_LIBFFI_FOR_ADJUSTORS)
+#ifndef _CALL_ELF
+#define _CALL_ELF 0
+#endif
 #include "ffi.h"
 #include <string.h>
 #endif

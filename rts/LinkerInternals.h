@@ -75,7 +75,8 @@ typedef struct ForeignExportStablePtr_ {
     struct ForeignExportStablePtr_ *next;
 } ForeignExportStablePtr;
 
-#if powerpc_HOST_ARCH || x86_64_HOST_ARCH || arm_HOST_ARCH
+#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) \
+        || defined(arm_HOST_ARCH)
 #define NEED_SYMBOL_EXTRAS 1
 #endif
 
@@ -90,10 +91,10 @@ typedef struct {
         long mtctr_r12;
         long bctr;
     } jumpIsland;
-#elif x86_64_HOST_ARCH
+#elif defined(x86_64_HOST_ARCH)
     uint64_t    addr;
     uint8_t     jumpIsland[6];
-#elif arm_HOST_ARCH
+#elif defined(arm_HOST_ARCH)
     uint8_t     jumpIsland[16];
 #endif
 } SymbolExtra;

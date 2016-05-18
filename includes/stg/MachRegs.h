@@ -82,7 +82,7 @@
    Leaving SpLim out of the picture.
    -------------------------------------------------------------------------- */
 
-#if MACHREGS_i386
+#ifdef MACHREGS_i386
 
 #define REG(x) __asm__("%" #x)
 

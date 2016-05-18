@@ -38,6 +38,9 @@
 #endif
 #endif
 
+#ifndef _CALL_ELF
+#define _CALL_ELF 0
+#endif
 #include "ffi.h"
 
 /* --------------------------------------------------------------------------

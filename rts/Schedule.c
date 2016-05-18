@@ -405,7 +405,7 @@ run_thread:
     prev_what_next = t->what_next;
 
     errno = t->saved_errno;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
     SetLastError(t->saved_winerror);
 #endif
 
@@ -484,7 +484,7 @@ run_thread:
     // XXX: possibly bogus for SMP because this thread might already
     // be running again, see code below.
     t->saved_errno = errno;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
     // Similarly for Windows error code
     t->saved_winerror = GetLastError();
 #endif
@@ -2320,12 +2320,12 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   int saved_errno;
   StgTSO *tso;
   Task *task;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
   StgWord32 saved_winerror;
 #endif
 
   saved_errno = errno;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
   saved_winerror = GetLastError();
 #endif
 
@@ -2365,7 +2365,7 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   RELEASE_LOCK(&cap->lock);
 
   errno = saved_errno;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
   SetLastError(saved_winerror);
 #endif
   return task;
@@ -2379,12 +2379,12 @@ resumeThread (void *task_)
     Capability *cap;
     Task *task = task_;
     int saved_errno;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
     StgWord32 saved_winerror;
 #endif
 
     saved_errno = errno;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
     saved_winerror = GetLastError();
 #endif
 
@@ -2421,7 +2421,7 @@ resumeThread (void *task_)
     cap->r.rCurrentTSO = tso;
     cap->in_haskell = rtsTrue;
     errno = saved_errno;
-#if mingw32_HOST_OS
+#ifdef mingw32_HOST_OS
     SetLastError(saved_winerror);
 #endif
 
