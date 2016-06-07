@@ -630,7 +630,7 @@ forkLneBody body_code
         ; setState $ state `addCodeBlocksFrom` fork_state_out
         ; return result }
 
-codeOnly :: FCode () -> FCode ()
+codeOnly :: FCode a -> FCode a
 -- Emit any code from the inner thing into the outer thing
 -- Do not affect anything else in the outer state
 -- Used in almost-circular code to prevent false loop dependencies
@@ -640,8 +640,10 @@ codeOnly body_code
         ; state     <- getState
         ; let   fork_state_in = (initCgState us) { cgs_binds   = cgs_binds state
                                                  , cgs_hp_usg  = cgs_hp_usg state }
-                ((), fork_state_out) = doFCode body_code info_down fork_state_in
-        ; setState $ state `addCodeBlocksFrom` fork_state_out }
+                (a, fork_state_out) = doFCode body_code info_down fork_state_in
+        ; setState $ state `addCodeBlocksFrom` fork_state_out
+        ; return a
+        }
 
 forkAlts :: [FCode a] -> FCode [a]
 -- (forkAlts' bs d) takes fcodes 'bs' for the branches of a 'case', and

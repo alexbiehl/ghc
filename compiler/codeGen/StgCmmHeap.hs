@@ -543,10 +543,13 @@ heapCheck checkStack checkYield do_gc code
                  where mBLOCK_SIZE = bLOCKS_PER_MBLOCK dflags * bLOCK_SIZE_W dflags
               stk_hwm | checkStack = Just (CmmLit CmmHighStackMark)
                       | otherwise  = Nothing
-        ; codeOnly $ do_checks stk_hwm checkYield mb_alloc_bytes do_gc
-        ; tickyAllocHeap True hpHw
-        ; setRealHp hpHw
-        ; code }
+
+              code' = do { tickyAllocHeap True hpHw
+                         ; setRealHp hpHw
+                         ; code
+                         }
+        ; codeOnly $ do_checks stk_hwm checkYield mb_alloc_bytes do_gc code'
+        }
 
 heapStackCheckGen :: Maybe CmmExpr -> Maybe CmmExpr -> FCode ()
 heapStackCheckGen stk_hwm mb_bytes
@@ -554,7 +557,7 @@ heapStackCheckGen stk_hwm mb_bytes
        lretry <- newLabelC
        emitLabel lretry
        call <- mkCall generic_gc (GC, GC) [] [] updfr_sz []
-       do_checks stk_hwm False mb_bytes (call <*> mkBranch lretry)
+       do_checks stk_hwm False mb_bytes (call <*> mkBranch lretry) (return ())
 
 -- Note [Single stack check]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -607,8 +610,9 @@ do_checks :: Maybe CmmExpr    -- Should we check the stack?
           -> Bool             -- Should we check for preemption?
           -> Maybe CmmExpr    -- Heap headroom (bytes)
           -> CmmAGraph        -- What to do on failure
-          -> FCode ()
-do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
+          -> FCode a          -- Code on success
+          -> FCode a
+do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc code = do
   dflags <- getDynFlags
   gc_id <- newLabelC
 
@@ -660,6 +664,9 @@ do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
                                    CmmLit (zeroCLit dflags)]
          emit =<< mkCmmIfGoto yielding gc_id
 
+  -- emit the code before the do_gc block
+  a <- code
+
   tscope <- getTickScope
   emitOutOfLine gc_id
    (do_gc, tscope) -- this is expected to jump back somewhere
@@ -670,6 +677,7 @@ do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
                 -- stack check succeeds.  Otherwise we might end up
                 -- with slop at the end of the current block, which can
                 -- confuse the LDV profiler.
+  return a
 
 -- Note [Self-recursive loop header]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
