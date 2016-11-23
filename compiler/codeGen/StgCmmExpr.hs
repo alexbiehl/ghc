@@ -575,11 +575,13 @@ cgAlts gc_plan bndr (AlgAlt tycon) alts
 
         ; (mb_deflt, branches) <- cgAlgAltRhss gc_plan bndr alts
 
-        ; let fam_sz   = tyConFamilySize tycon
-              bndr_reg = CmmLocal (idToReg dflags bndr)
+        ; let fam_sz      = tyConFamilySize tycon
+              bndr_reg    = CmmLocal (idToReg dflags bndr)
+              is_smallish = isSmallFamily dflags fam_sz ||
+                            all (isSmallishConTag dflags) (map fst branches)
 
                     -- Is the constructor tag in the node reg?
-        ; if isSmallFamily dflags fam_sz
+        ; if is_smallish
           then do
                 let   -- Yes, bndr_reg has constr. tag in ls bits
                    tag_expr = cmmConstrTag1 dflags (CmmReg bndr_reg)
@@ -590,7 +592,7 @@ cgAlts gc_plan bndr (AlgAlt tycon) alts
                 do dflags <- getDynFlags
                    let -- Note that ptr _always_ has tag 1
                        -- when the family size is big enough
-                       untagged_ptr = cmmRegOffB bndr_reg (-1)
+                       untagged_ptr = cmmUntag dflags (CmmReg bndr_reg)
                        tag_expr = getConstrTag dflags (untagged_ptr)
                    emitSwitch tag_expr branches mb_deflt 0 (fam_sz - 1)
 

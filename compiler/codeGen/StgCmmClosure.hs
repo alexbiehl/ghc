@@ -12,7 +12,7 @@
 -----------------------------------------------------------------------------
 
 module StgCmmClosure (
-        DynTag,  tagForCon, isSmallFamily,
+        DynTag,  tagForCon, isSmallFamily, isSmallishConTag,
         ConTagZ, dataConTagZ,
 
         idPrimRep, isVoidRep, isGcPtrRep, addIdReps, addArgReps,
@@ -348,12 +348,18 @@ type DynTag = Int       -- The tag on a *pointer*
 --    * big, otherwise.
 --
 -- Small families can have the constructor tag in the tag bits.
--- Big families only use the tag value 1 to represent evaluatedness.
+-- For big families we tag the first (2**tag_bits - 1) constructors
+-- and the rest gets the tag value 7 to represent evaluatedness.
 -- We don't have very many tag bits: for example, we have 2 bits on
 -- x86-32 and 3 bits on x86-64.
+--
 
 isSmallFamily :: DynFlags -> Int -> Bool
 isSmallFamily dflags fam_size = fam_size <= mAX_PTR_TAG dflags
+
+-- Is con_tag is viable for pointer tagging.
+isSmallishConTag :: DynFlags -> ConTagZ -> Bool
+isSmallishConTag dflags con_tag = con_tag + fIRST_TAG < mAX_PTR_TAG dflags
 
 -- We keep the *zero-indexed* tag in the srt_len field of the info
 -- table of a data constructor.
@@ -362,8 +368,9 @@ dataConTagZ con = dataConTag con - fIRST_TAG
 
 tagForCon :: DynFlags -> DataCon -> DynTag
 tagForCon dflags con
-  | isSmallFamily dflags fam_size = con_tag + 1
-  | otherwise                     = 1
+  | isSmallFamily dflags fam_size ||
+    isSmallishConTag dflags con_tag = con_tag + 1
+  | otherwise                       = mAX_PTR_TAG dflags
   where
     con_tag  = dataConTagZ con
     fam_size = tyConFamilySize (dataConTyCon con)
