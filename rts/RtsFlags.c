@@ -69,7 +69,8 @@ const RtsConfig defaultRtsConfig  = {
     .stackOverflowHook = StackOverflowHook,
     .outOfHeapHook = OutOfHeapHook,
     .mallocFailHook = MallocFailHook,
-    .gcDoneHook = NULL
+    .gcDoneHook = NULL,
+    .flushEventLog = NULL
 };
 
 /*

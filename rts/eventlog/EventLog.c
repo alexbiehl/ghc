@@ -26,6 +26,8 @@
 #include <unistd.h>
 #endif
 
+static EventLogWriter event_log_writer;
+
 // PID of the process that writes to event_log_filename (#4512)
 static pid_t event_log_pid = -1;
 
@@ -232,14 +234,12 @@ static inline void postInt32(EventsBuf *eb, StgInt32 i)
 
 #define EVENT_SIZE_DYNAMIC (-1)
 
-void
-initEventLogging(void)
+static void
+initEventLogFileWriter(void)
 {
-    StgWord8 t, c;
-    uint32_t n_caps;
     char *prog;
 
-    prog = stgMallocBytes(strlen(prog_name) + 1, "initEventLogging");
+    prog = stgMallocBytes(strlen(prog_name) + 1, "initEventLogFileWriter");
     strcpy(prog, prog_name);
 #ifdef mingw32_HOST_OS
     // on Windows, drop the .exe suffix if there is one
@@ -251,15 +251,10 @@ initEventLogging(void)
         }
     }
 #endif
-
     event_log_filename = stgMallocBytes(strlen(prog)
                                         + 10 /* .%d */
                                         + 10 /* .eventlog */,
-                                        "initEventLogging");
-
-    if (sizeof(EventDesc) / sizeof(char*) != NUM_GHC_EVENT_TAGS) {
-        barf("EventDesc array has the wrong number of elements");
-    }
+                                        "initEventLogFileWriter");
 
     if (event_log_pid == -1) { // #4512
         // Single process
@@ -279,8 +274,99 @@ initEventLogging(void)
 
     /* Open event log file for writing. */
     if ((event_log_file = fopen(event_log_filename, "wb")) == NULL) {
-        sysErrorBelch("initEventLogging: can't open %s", event_log_filename);
+        sysErrorBelch(
+            "initEventLogFileWriter: can't open %s", event_log_filename);
         stg_exit(EXIT_FAILURE);
+    }
+}
+
+static StgInt
+writeEventLogFile(StgInt8 *elog, StgWord64 elog_size)
+{
+    StgInt8 *begin = elog;
+    StgWord64 remain = elog_size;
+
+    while (remain > 0) {
+        StgWord64 written = fwrite(begin, 1, remain, event_log_file);
+        if (written == 0) {
+            return false;
+        }
+        remain -= written;
+        begin += written;
+    }
+
+    return true;
+}
+
+static void
+flushEventLogFile(void)
+{
+    if (event_log_file != NULL) {
+        fflush(event_log_file);
+    }
+}
+
+static void
+stopEventLogFileWriter(void)
+{
+    if (event_log_file != NULL) {
+        fclose(event_log_file);
+    }
+}
+
+EventLogWriter fileEventLogWriter =
+    {
+        .initEventLogWriter = initEventLogFileWriter,
+        .writeEventLog      = writeEventLogFile,
+        .flushEventLog      = flushEventLogFile,
+        .stopEventLogWriter = stopEventLogFileWriter
+    };
+
+static void
+initEventLogWriter(void)
+{
+    if (event_log_writer.initEventLogWriter != NULL) {
+        event_log_writer.initEventLogWriter();
+    }
+}
+
+static StgInt
+writeEventLog(StgInt8 *elog, StgWord64 elog_size)
+{
+    if (event_log_writer.writeEventLog != NULL) {
+        return event_log_writer.writeEventLog(elog, elog_size);
+    } else {
+        return false;
+    }
+}
+
+static void
+stopEventLogWriter(void)
+{
+    if (event_log_writer.stopEventLogWriter != NULL) {
+        event_log_writer.stopEventLogWriter();
+    }
+}
+
+void
+flushEventLog(void)
+{
+    if (event_log_writer.flushEventLog != NULL) {
+        event_log_writer.flushEventLog();
+    }
+}
+
+void
+initEventLogging(EventLogWriter ev_writer)
+{
+    StgWord8 t, c;
+    uint32_t n_caps;
+
+    event_log_writer  = ev_writer;
+    initEventLogWriter();
+
+    if (sizeof(EventDesc) / sizeof(char*) != NUM_GHC_EVENT_TAGS) {
+        barf("EventDesc array has the wrong number of elements");
     }
 
     /*
@@ -522,9 +608,7 @@ endEventLogging(void)
     // Flush the end of data marker.
     printAndClearEventBuf(&eventBuf);
 
-    if (event_log_file != NULL) {
-        fclose(event_log_file);
-    }
+    stopEventLogWriter();
 }
 
 void
@@ -574,20 +658,10 @@ freeEventLogging(void)
 }
 
 void
-flushEventLog(void)
-{
-    if (event_log_file != NULL) {
-        fflush(event_log_file);
-    }
-}
-
-void
 abortEventLogging(void)
 {
     freeEventLogging();
-    if (event_log_file != NULL) {
-        fclose(event_log_file);
-    }
+    stopEventLogWriter();
 }
 
 /*
@@ -1287,18 +1361,13 @@ void printAndClearEventBuf (EventsBuf *ebuf)
 
     if (ebuf->begin != NULL && ebuf->pos != ebuf->begin)
     {
-        StgInt8 *begin = ebuf->begin;
-        while (begin < ebuf->pos) {
-            StgWord64 remain = ebuf->pos - begin;
-            StgWord64 written = fwrite(begin, 1, remain, event_log_file);
-            if (written == 0) {
-                debugBelch(
-                    "printAndClearEventLog: fwrite() failed to write anything;"
-                    " tried to write numBytes=%" FMT_Word64, remain);
-                resetEventsBuf(ebuf);
-                return;
-            }
-            begin += written;
+        StgWord64 elog_size = ebuf->pos - ebuf->begin;
+        if (!writeEventLog(ebuf->begin, elog_size)) {
+            debugBelch(
+                    "printAndClearEventLog: could not flush event log"
+                );
+            resetEventsBuf(ebuf);
+            return;
         }
 
         resetEventsBuf(ebuf);

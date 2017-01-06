@@ -20,6 +20,7 @@
 #include "eventlog/EventLog.h"
 #include "Threads.h"
 #include "Printer.h"
+#include "RtsFlags.h"
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -38,10 +39,24 @@ static Mutex trace_utx;
 #endif
 
 static bool eventlog_enabled;
+static EventLogWriter eventlog_writer;
 
 /* ---------------------------------------------------------------------------
    Starting up / shuttting down the tracing facilities
  --------------------------------------------------------------------------- */
+
+static void initEventLogWriter()
+{
+    if (rtsConfig.flushEventLog != NULL) {
+        eventlog_writer.initEventLogWriter = NULL;
+        eventlog_writer.writeEventLog = rtsConfig.flushEventLog;
+        eventlog_writer.flushEventLog = NULL;
+        eventlog_writer.stopEventLogWriter = NULL;
+    } else {
+        eventlog_writer = fileEventLogWriter;
+    }
+}
+
 
 void initTracing (void)
 {
@@ -89,7 +104,8 @@ void initTracing (void)
      */
 
     if (eventlog_enabled) {
-        initEventLogging();
+        initEventLogWriter();
+        initEventLogging(eventlog_writer);
     }
 }
 
@@ -111,7 +127,7 @@ void resetTracing (void)
 {
     if (eventlog_enabled) {
         abortEventLogging(); // abort eventlog inherited from parent
-        initEventLogging(); // child starts its own eventlog
+        initEventLogging(eventlog_writer); // child starts its own eventlog
     }
 }
 

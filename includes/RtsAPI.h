@@ -97,6 +97,9 @@ typedef struct {
 
     // Called for every GC
     void (* gcDoneHook) (const struct GCDetails_ *stats);
+
+    // Called when event log buffer is full, return 0 for failure.
+    HsInt (* flushEventLog) (HsInt8 *eventlog, HsWord64 eventlog_size);
 } RtsConfig;
 
 // Clients should start with defaultRtsConfig and then customise it.
