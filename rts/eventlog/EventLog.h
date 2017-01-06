@@ -11,33 +11,11 @@
 
 #include "rts/EventLogFormat.h"
 #include "Capability.h"
+#include "EventLogWriter.h"
 
 #include "BeginPrivate.h"
 
 #ifdef TRACING
-
-/*
- *  Eventlog output.
- */
-typedef struct EventLogWriter_ {
-    // Initialize an EventLogOutput for writing eventlogs.
-    void (* initEventLogWriter) (void);
-
-    // Write a series of events.
-    StgInt (* writeEventLog) (StgInt8 *, StgWord64);
-
-    // Flush possibly existing buffers
-    void (* flushEventLog) (void);
-
-    // Close an initialized EventLogOutput.
-    void (* stopEventLogWriter) (void);
-} EventLogWriter;
-
-/*
- * An EventLogWriter which writes eventlogs to
- * a file.
- */
-extern EventLogWriter fileEventLogWriter;
 
 /*
  * Descriptions of EventTags for events.

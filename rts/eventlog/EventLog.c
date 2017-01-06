@@ -28,14 +28,6 @@
 
 static EventLogWriter event_log_writer;
 
-// PID of the process that writes to event_log_filename (#4512)
-static pid_t event_log_pid = -1;
-
-static char *event_log_filename = NULL;
-
-// File for logging events
-FILE *event_log_file = NULL;
-
 #define EVENT_LOG_SIZE 2 * (1024 * 1024) // 2MB
 
 static int flushCount;
@@ -233,94 +225,6 @@ static inline void postInt32(EventsBuf *eb, StgInt32 i)
 { postWord32(eb, (StgWord32)i); }
 
 #define EVENT_SIZE_DYNAMIC (-1)
-
-static void
-initEventLogFileWriter(void)
-{
-    char *prog;
-
-    prog = stgMallocBytes(strlen(prog_name) + 1, "initEventLogFileWriter");
-    strcpy(prog, prog_name);
-#ifdef mingw32_HOST_OS
-    // on Windows, drop the .exe suffix if there is one
-    {
-        char *suff;
-        suff = strrchr(prog,'.');
-        if (suff != NULL && !strcmp(suff,".exe")) {
-            *suff = '\0';
-        }
-    }
-#endif
-    event_log_filename = stgMallocBytes(strlen(prog)
-                                        + 10 /* .%d */
-                                        + 10 /* .eventlog */,
-                                        "initEventLogFileWriter");
-
-    if (event_log_pid == -1) { // #4512
-        // Single process
-        sprintf(event_log_filename, "%s.eventlog", prog);
-        event_log_pid = getpid();
-    } else {
-        // Forked process, eventlog already started by the parent
-        // before fork
-        event_log_pid = getpid();
-        // We don't have a FMT* symbol for pid_t, so we go via Word64
-        // to be sure of not losing range. It would be nicer to have a
-        // FMT* symbol or similar, though.
-        sprintf(event_log_filename, "%s.%" FMT_Word64 ".eventlog",
-                prog, (StgWord64)event_log_pid);
-    }
-    stgFree(prog);
-
-    /* Open event log file for writing. */
-    if ((event_log_file = fopen(event_log_filename, "wb")) == NULL) {
-        sysErrorBelch(
-            "initEventLogFileWriter: can't open %s", event_log_filename);
-        stg_exit(EXIT_FAILURE);
-    }
-}
-
-static StgInt
-writeEventLogFile(StgInt8 *elog, StgWord64 elog_size)
-{
-    StgInt8 *begin = elog;
-    StgWord64 remain = elog_size;
-
-    while (remain > 0) {
-        StgWord64 written = fwrite(begin, 1, remain, event_log_file);
-        if (written == 0) {
-            return false;
-        }
-        remain -= written;
-        begin += written;
-    }
-
-    return true;
-}
-
-static void
-flushEventLogFile(void)
-{
-    if (event_log_file != NULL) {
-        fflush(event_log_file);
-    }
-}
-
-static void
-stopEventLogFileWriter(void)
-{
-    if (event_log_file != NULL) {
-        fclose(event_log_file);
-    }
-}
-
-EventLogWriter fileEventLogWriter =
-    {
-        .initEventLogWriter = initEventLogFileWriter,
-        .writeEventLog      = writeEventLogFile,
-        .flushEventLog      = flushEventLogFile,
-        .stopEventLogWriter = stopEventLogFileWriter
-    };
 
 static void
 initEventLogWriter(void)
@@ -651,9 +555,6 @@ freeEventLogging(void)
     }
     if (capEventBuf != NULL)  {
         stgFree(capEventBuf);
-    }
-    if (event_log_filename != NULL) {
-        stgFree(event_log_filename);
     }
 }
 

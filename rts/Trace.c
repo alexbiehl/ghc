@@ -18,6 +18,7 @@
 #include "GetEnv.h"
 #include "Stats.h"
 #include "eventlog/EventLog.h"
+#include "eventlog/EventLogWriter.h"
 #include "Threads.h"
 #include "Printer.h"
 #include "RtsFlags.h"
