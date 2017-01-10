@@ -75,7 +75,7 @@ initEventLogFileWriter(void)
     stgFree(event_log_filename);
 }
 
-int
+bool
 writeEventLogFile(unsigned char *eventlog, size_t eventlog_size)
 {
     unsigned char *begin = eventlog;

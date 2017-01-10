@@ -12,6 +12,7 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
+#include <stdbool.h>
 
 #include "PosixSource.h"
 #include "Rts.h"
@@ -24,7 +25,7 @@ typedef struct {
     void (* initEventLogWriter) (void);
 
     // Write a series of events.
-    int (* writeEventLog) (unsigned char *eventlog, size_t eventlog_size);
+    bool (* writeEventLog) (unsigned char *eventlog, size_t eventlog_size);
 
     // Flush possibly existing buffers
     void (* flushEventLog) (void);
@@ -39,7 +40,7 @@ typedef struct {
  */
 void initEventLogFileWriter(void);
 
-int writeEventLogFile(unsigned char *eventlog, size_t eventlog_size);
+bool writeEventLogFile(unsigned char *eventlog, size_t eventlog_size);
 
 void flushEventLogFile(void);
 
