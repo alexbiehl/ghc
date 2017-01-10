@@ -10,7 +10,7 @@
 #include "Rts.h"
 
 #include "RtsUtils.h"
-#include "EventLogWriter.h"
+#include "rts/EventLogWriter.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -24,15 +24,13 @@
 // PID of the process that writes to event_log_filename (#4512)
 static pid_t event_log_pid = -1;
 
-static char *event_log_filename = NULL;
-
 // File for logging events
 static FILE *event_log_file = NULL;
 
-static void
+void
 initEventLogFileWriter(void)
 {
-    char *prog;
+    char *prog, *event_log_filename;
 
     prog = stgMallocBytes(strlen(prog_name) + 1, "initEventLogFileWriter");
     strcpy(prog, prog_name);
@@ -73,16 +71,18 @@ initEventLogFileWriter(void)
             "initEventLogFileWriter: can't open %s", event_log_filename);
         stg_exit(EXIT_FAILURE);
     }
+
+    stgFree(event_log_filename);
 }
 
-static StgInt
-writeEventLogFile(StgInt8 *elog, StgWord64 elog_size)
+int
+writeEventLogFile(unsigned char *eventlog, size_t eventlog_size)
 {
-    StgInt8 *begin = elog;
-    StgWord64 remain = elog_size;
+    unsigned char *begin = eventlog;
+    size_t remain = eventlog_size;
 
     while (remain > 0) {
-        StgWord64 written = fwrite(begin, 1, remain, event_log_file);
+        size_t written = fwrite(begin, 1, remain, event_log_file);
         if (written == 0) {
             return false;
         }
@@ -93,7 +93,7 @@ writeEventLogFile(StgInt8 *elog, StgWord64 elog_size)
     return true;
 }
 
-static void
+void
 flushEventLogFile(void)
 {
     if (event_log_file != NULL) {
@@ -101,21 +101,10 @@ flushEventLogFile(void)
     }
 }
 
-static void
+void
 stopEventLogFileWriter(void)
 {
     if (event_log_file != NULL) {
         fclose(event_log_file);
     }
-    if (event_log_filename != NULL) {
-        stgFree(event_log_filename);
-    }
 }
-
-EventLogWriter fileEventLogWriter =
-    {
-        .initEventLogWriter = initEventLogFileWriter,
-        .writeEventLog      = writeEventLogFile,
-        .flushEventLog      = flushEventLogFile,
-        .stopEventLogWriter = stopEventLogFileWriter
-    };

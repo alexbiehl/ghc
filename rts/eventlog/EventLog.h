@@ -10,8 +10,8 @@
 #define EVENTLOG_H
 
 #include "rts/EventLogFormat.h"
+#include "rts/EventLogWriter.h"
 #include "Capability.h"
-#include "EventLogWriter.h"
 
 #include "BeginPrivate.h"
 

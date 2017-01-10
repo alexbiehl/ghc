@@ -18,7 +18,7 @@
 #include "GetEnv.h"
 #include "Stats.h"
 #include "eventlog/EventLog.h"
-#include "eventlog/EventLogWriter.h"
+#include "rts/EventLogWriter.h"
 #include "Threads.h"
 #include "Printer.h"
 #include "RtsFlags.h"
@@ -40,27 +40,20 @@ static Mutex trace_utx;
 #endif
 
 static bool eventlog_enabled;
-static EventLogWriter eventlog_writer;
 
 /* ---------------------------------------------------------------------------
    Starting up / shuttting down the tracing facilities
  --------------------------------------------------------------------------- */
 
-static void initEventLogWriter()
+static EventLogWriter getEventLogWriter()
 {
-    if (rtsConfig.flushEventLog != NULL) {
-        eventlog_writer.initEventLogWriter = NULL;
-        eventlog_writer.writeEventLog = rtsConfig.flushEventLog;
-        eventlog_writer.flushEventLog = NULL;
-        eventlog_writer.stopEventLogWriter = NULL;
-    } else {
-        eventlog_writer = fileEventLogWriter;
-    }
+    return rtsConfig.eventLogWriter;
 }
-
 
 void initTracing (void)
 {
+    EventLogWriter eventlog_writer = getEventLogWriter();
+
 #ifdef THREADED_RTS
     initMutex(&trace_utx);
 #endif
@@ -98,14 +91,14 @@ void initTracing (void)
         TRACE_spark_full ||
         TRACE_user;
 
-    eventlog_enabled = RtsFlags.TraceFlags.tracing == TRACE_EVENTLOG;
+    eventlog_enabled = RtsFlags.TraceFlags.tracing == TRACE_EVENTLOG &&
+                        eventlog_writer.writeEventLog != NULL;
 
     /* Note: we can have any of the TRACE_* flags turned on even when
        eventlog_enabled is off. In the DEBUG way we may be tracing to stderr.
      */
 
     if (eventlog_enabled) {
-        initEventLogWriter();
         initEventLogging(eventlog_writer);
     }
 }
@@ -128,7 +121,7 @@ void resetTracing (void)
 {
     if (eventlog_enabled) {
         abortEventLogging(); // abort eventlog inherited from parent
-        initEventLogging(eventlog_writer); // child starts its own eventlog
+        initEventLogging(getEventLogWriter); // child starts its own eventlog
     }
 }
 

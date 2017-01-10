@@ -9,10 +9,12 @@
 #ifndef EVENTLOG_WRITER_H
 #define EVENTLOG_WRITER_H
 
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
 #include "PosixSource.h"
 #include "Rts.h"
-
-#include "BeginPrivate.h"
 
 /*
  *  Abstraction for writing eventlog data.
@@ -22,7 +24,7 @@ typedef struct {
     void (* initEventLogWriter) (void);
 
     // Write a series of events.
-    StgInt (* writeEventLog) (StgInt8 *, StgWord64);
+    int (* writeEventLog) (unsigned char *eventlog, size_t eventlog_size);
 
     // Flush possibly existing buffers
     void (* flushEventLog) (void);
@@ -35,8 +37,12 @@ typedef struct {
  * An EventLogWriter which writes eventlogs to
  * a file `program.eventlog`.
  */
-extern EventLogWriter fileEventLogWriter;
+void initEventLogFileWriter(void);
 
-#include "EndPrivate.h"
+int writeEventLogFile(unsigned char *eventlog, size_t eventlog_size);
+
+void flushEventLogFile(void);
+
+void stopEventLogFileWriter(void);
 
 #endif /* EVENTLOG_WRITER_H */

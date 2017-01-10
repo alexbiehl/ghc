@@ -64,13 +64,18 @@ const RtsConfig defaultRtsConfig  = {
     .rts_opts = NULL,
     .rts_hs_main = false,
     .keep_cafs = false,
+    .eventlog_writer = {
+        .initEventLogWriter = initEventLogFileWriter,
+        .writeEventLog = writeEventLogFile,
+        .flushEventLog = flushEventLogFile,
+        .stopEventLogWriter = stopEventLogFileWriter
+    },
     .defaultsHook = FlagDefaultsHook,
     .onExitHook = OnExitHook,
     .stackOverflowHook = StackOverflowHook,
     .outOfHeapHook = OutOfHeapHook,
     .mallocFailHook = MallocFailHook,
     .gcDoneHook = NULL,
-    .flushEventLog = NULL
 };
 
 /*
