@@ -47,7 +47,7 @@ static bool eventlog_enabled;
 
 static EventLogWriter getEventLogWriter()
 {
-    return rtsConfig.eventLogWriter;
+    return rtsConfig.eventlog_writer;
 }
 
 void initTracing (void)
@@ -121,7 +121,7 @@ void resetTracing (void)
 {
     if (eventlog_enabled) {
         abortEventLogging(); // abort eventlog inherited from parent
-        initEventLogging(getEventLogWriter); // child starts its own eventlog
+        initEventLogging(getEventLogWriter()); // child starts its own eventlog
     }
 }
 

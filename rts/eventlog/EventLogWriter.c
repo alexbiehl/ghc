@@ -76,7 +76,7 @@ initEventLogFileWriter(void)
 }
 
 bool
-writeEventLogFile(unsigned char *eventlog, size_t eventlog_size)
+writeEventLogFile(void *eventlog, size_t eventlog_size)
 {
     unsigned char *begin = eventlog;
     size_t remain = eventlog_size;

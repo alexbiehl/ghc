@@ -22,7 +22,7 @@
  */
 extern char *EventTagDesc[];
 
-void initEventLogging(EventLogWriter eventlog_writer);
+void initEventLogging(EventLogWriter writer);
 void endEventLogging(void);
 void freeEventLogging(void);
 void abortEventLogging(void); // #4512 - after fork child needs to abort

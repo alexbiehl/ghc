@@ -24,7 +24,7 @@ typedef struct {
     void (* initEventLogWriter) (void);
 
     // Write a series of events.
-    bool (* writeEventLog) (unsigned char *eventlog, size_t eventlog_size);
+    bool (* writeEventLog) (void *eventlog, size_t eventlog_size);
 
     // Flush possibly existing buffers
     void (* flushEventLog) (void);
@@ -39,7 +39,7 @@ typedef struct {
  */
 void initEventLogFileWriter(void);
 
-bool writeEventLogFile(unsigned char *eventlog, size_t eventlog_size);
+bool writeEventLogFile(void *eventlog, size_t eventlog_size);
 
 void flushEventLogFile(void);
 

@@ -234,11 +234,11 @@ initEventLogWriter(void)
     }
 }
 
-static StgInt
-writeEventLog(StgInt8 *elog, StgWord64 elog_size)
+static bool
+writeEventLog(void *eventlog, size_t eventlog_size)
 {
     if (event_log_writer.writeEventLog != NULL) {
-        return event_log_writer.writeEventLog(elog, elog_size);
+        return event_log_writer.writeEventLog(eventlog, eventlog_size);
     } else {
         return false;
     }
@@ -1262,7 +1262,7 @@ void printAndClearEventBuf (EventsBuf *ebuf)
 
     if (ebuf->begin != NULL && ebuf->pos != ebuf->begin)
     {
-        StgWord64 elog_size = ebuf->pos - ebuf->begin;
+        size_t elog_size = ebuf->pos - ebuf->begin;
         if (!writeEventLog(ebuf->begin, elog_size)) {
             debugBelch(
                     "printAndClearEventLog: could not flush event log"
