@@ -9,9 +9,7 @@
 #ifndef EVENTLOG_WRITER_H
 #define EVENTLOG_WRITER_H
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
+#include <stddef.h>
 #include <stdbool.h>
 
 #include "Rts.h"
