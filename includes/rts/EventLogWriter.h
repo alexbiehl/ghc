@@ -14,7 +14,6 @@
 #endif
 #include <stdbool.h>
 
-#include "PosixSource.h"
 #include "Rts.h"
 
 /*
