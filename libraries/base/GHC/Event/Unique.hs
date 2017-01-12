@@ -1,5 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE BangPatterns, CPP, GeneralizedNewtypeDeriving, MagicHash, NoImplicitPrelude, UnboxedTuples #-}
+{-# LANGUAGE BangPatterns, GeneralizedNewtypeDeriving, NoImplicitPrelude #-}
 
 module GHC.Event.Unique
     (
@@ -9,33 +9,36 @@ module GHC.Event.Unique
     , newUnique
     ) where
 
+import Data.Int (Int64)
 import GHC.Base
-import GHC.Num(Num)
-import GHC.Show(Show(..))
+import GHC.Conc.Sync (TVar, atomically, newTVarIO, readTVar, writeTVar)
+import GHC.Num (Num(..))
+import GHC.Show (Show(..))
 
-#include "MachDeps.h"
-#ifndef SIZEOF_HSINT
-#define SIZEOF_HSINT  INT_SIZE_IN_BYTES
-#endif
+-- We used to use IORefs here, but Simon switched us to STM when we
+-- found that our use of atomicModifyIORef was subject to a severe RTS
+-- performance problem when used in a tight loop from multiple
+-- threads: http://ghc.haskell.org/trac/ghc/ticket/3838
+--
+-- There seems to be no performance cost to using a TVar instead.
 
-data UniqueSource = US (MutableByteArray# RealWorld)
+newtype UniqueSource = US (TVar Int64)
 
-newtype Unique = Unique { asInt :: Int }
+newtype Unique = Unique { asInt64 :: Int64 }
     deriving (Eq, Ord, Num)
 
 -- | @since 4.3.1.0
 instance Show Unique where
-    show = show . asInt
+    show = show . asInt64
 
 newSource :: IO UniqueSource
-newSource = IO $ \s ->
-  case newByteArray# size s of
-    (# s', mba #) -> (# s', US mba #)
-  where
-    !(I# size) = SIZEOF_HSINT
+newSource = US `fmap` newTVarIO 0
 
 newUnique :: UniqueSource -> IO Unique
-newUnique (US mba) = IO $ \s ->
-  case fetchAddIntArray# mba 0# 1# s of
-    (# s', a #) -> (# s', Unique (I# a) #)
+newUnique (US ref) = atomically $ do
+  u <- readTVar ref
+  let !u' = u+1
+  writeTVar ref u'
+  return $ Unique u'
 {-# INLINE newUnique #-}
+
