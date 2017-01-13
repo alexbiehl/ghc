@@ -474,7 +474,7 @@ coreToStgExpr e = pprPanic "coreToStgExpr" (ppr e)
 mkStgAltType :: Id -> [CoreAlt] -> AltType
 mkStgAltType bndr alts = case repType (idType bndr) of
     UnaryRep rep_ty -> case tyConAppTyCon_maybe rep_ty of
-        Just tc | isUnliftedTyCon tc -> PrimAlt tc
+        Just tc | isUnliftedTyCon tc && not (isAlgTyCon tc) -> PrimAlt tc
                 | isAbstractTyCon tc -> look_for_better_tycon
                 | isAlgTyCon tc      -> AlgAlt tc
                 | otherwise          -> ASSERT2( _is_poly_alt_tycon tc, ppr tc )

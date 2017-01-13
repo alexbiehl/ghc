@@ -121,7 +121,7 @@ module TyCon(
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, pprType )
+import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, pprType, isUnliftedTypeKind )
 import {-# SOURCE #-} TysWiredIn ( runtimeRepTyCon, constraintKind
                                  , vecCountTyCon, vecElemTyCon, liftedTypeKind
                                  , mkFunKind, mkForAllKind )
@@ -1649,6 +1649,12 @@ isUnliftedTyCon (AlgTyCon { algTcRhs = rhs } )
 isUnliftedTyCon (AlgTyCon { algTcRhs = rhs } )
   | SumTyCon {} <- rhs
   = True
+isUnliftedTyCon (AlgTyCon { tyConResKind = res_kind })
+  | isUnliftedTypeKind res_kind
+  = True
+--        tyConResKind :: Kind,             -- ^ Result kind
+--        tyConKind    :: Kind,             -- ^ Kind of this TyCon
+
 isUnliftedTyCon _ = False
 
 -- | Returns @True@ if the supplied 'TyCon' resulted from either a

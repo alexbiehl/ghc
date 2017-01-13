@@ -216,7 +216,10 @@ mkDataConWorkers dflags mod_loc data_tycons
                                 -- The ice is thin here, but it works
     | tycon <- data_tycons,     -- CorePrep will eta-expand it
       data_con <- tyConDataCons tycon,
-      let id = dataConWorkId data_con
+      let id = dataConWorkId data_con,
+      not (isUnliftedTyCon tycon) -- binders with unlifted types
+                                  -- cannot live toplevel. Thus we 
+                                  -- exclude them here.
     ]
  where
    -- If we want to generate debug info, we put a source note on the

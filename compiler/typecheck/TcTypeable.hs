@@ -111,7 +111,7 @@ mkTypeableBinds
        } }
   where
     needs_typeable_binds tc =
-          (not (isFamInstTyCon tc) && isAlgTyCon tc)
+          (not (isFamInstTyCon tc) && isAlgTyCon tc && not (isUnliftedTyCon tc))
        || isDataFamilyTyCon tc
        || isClassTyCon tc
 

@@ -20,6 +20,7 @@ import StgCmmCon
 import StgCmmLayout
 import StgCmmUtils
 import StgCmmClosure
+import StgCmmHeap (mkStaticClosureFields)
 import StgCmmHpc
 import StgCmmTicky
 
@@ -229,6 +230,9 @@ cgDataCon data_con
             dyn_info_tbl =
               mkDataConInfoTable dflags data_con False ptr_wds nonptr_wds
 
+            stat_info_tbl =
+              mkDataConInfoTable dflags data_con True ptr_wds nonptr_wds
+
             -- We're generating info tables, so we don't know and care about
             -- what the actual arguments are. Using () here as the place holder.
             arg_reps :: [NonVoid PrimRep]
@@ -236,6 +240,22 @@ cgDataCon data_con
                        | ty <- dataConRepArgTys data_con
                        , rep_ty <- repTypeArgs ty
                        , not (isVoidTy rep_ty)]
+
+        ; when (isUnliftedCon data_con && isNullaryRepDataCon data_con) $
+            -- nullary unlifted constructors are never bound at top level
+            -- so we need to generate static closure here
+            do { let
+                   closure_label = mkClosureLabel (dataConName data_con) NoCafRefs
+
+                   closure_rep = mkStaticClosureFields
+                                  dflags
+                                  stat_info_tbl
+                                  dontCareCCS
+                                  NoCafRefs
+                                  []
+
+               ; emitDataLits closure_label closure_rep
+               }
 
         ; emitClosureAndInfoTable dyn_info_tbl NativeDirectCall [] $
             -- NB: the closure pointer is assumed *untagged* on
