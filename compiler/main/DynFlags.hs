@@ -476,6 +476,7 @@ data GeneralFlag
    | Opt_SplitObjs
    | Opt_SplitSections
    | Opt_StgStats
+   | Opt_NoImplicitPackageEnv
    | Opt_HideAllPackages
    | Opt_HideAllPluginPackages
    | Opt_PrintBindResult
@@ -3198,6 +3199,8 @@ package_flags_deps = [
       (NoArg (setGeneralFlag Opt_HideAllPackages))
   , make_ord_flag defFlag "hide-all-plugin-packages"
       (NoArg (setGeneralFlag Opt_HideAllPluginPackages))
+  , make_ord_flag defFlag "no-implicit-package-env"
+      (NoArg (setGeneralFlag Opt_NoImplicitPackageEnv))
   , make_ord_flag defFlag "package-env"           (HasArg setPackageEnv)
   , make_ord_flag defFlag "ignore-package"        (HasArg ignorePackage)
   , make_dep_flag defFlag "syslib" (HasArg exposePackage) "Use -package instead"
@@ -4496,7 +4499,7 @@ interpretPackageEnv dflags = do
                      , probeEnvName env
                      , envError     env
                      ]
-                 , notIfHideAllPackages >> msum [
+                 , ifImplicitPackageEnvAllowed >> msum [
                        findLocalEnvFile >>= probeEnvFile
                      , probeEnvName defaultEnvName
                      ]
@@ -4564,9 +4567,9 @@ interpretPackageEnv dflags = do
         Left err  -> if isDoesNotExistError err then mzero
                                                 else liftMaybeT $ throwIO err
 
-    notIfHideAllPackages :: MaybeT IO ()
-    notIfHideAllPackages =
-      guard (not (gopt Opt_HideAllPackages dflags))
+    ifImplicitPackageEnvAllowed :: MaybeT IO ()
+    ifImplicitPackageEnvAllowed =
+      guard (not (gopt Opt_NoImplicitPackageEnv dflags))
 
     defaultEnvName :: String
     defaultEnvName = "default"
