@@ -18,6 +18,8 @@ type ThetaType = [PredType]
 pprKind :: Kind -> SDoc
 pprType :: Type -> SDoc
 
+isUnliftedTypeKind :: Kind -> Bool
+
 instance Data Type
   -- To support Data instances in CoAxiom
 

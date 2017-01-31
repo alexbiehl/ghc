@@ -1713,8 +1713,7 @@ tcDataKindSig :: Kind -> TcM ([TyConBinder], Kind)
 -- Returns the new TyVars, the extracted TyBinders, and the new, reduced
 -- result kind (which should always be Type or a synonym thereof)
 tcDataKindSig kind
-  = do  { checkTc (isLiftedTypeKind res_kind) (badKindSig kind)
-        ; span <- getSrcSpanM
+  = do  { span <- getSrcSpanM
         ; us   <- newUniqueSupply
         ; rdr_env <- getLocalRdrEnv
         ; let uniqs = uniqsFromSupply us

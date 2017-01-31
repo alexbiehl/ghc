@@ -485,13 +485,21 @@ mkStgAltType bndr alts
 
   | otherwise
   = case prim_reps of
-      [LiftedRep] -> case tyConAppTyCon_maybe (unwrapType bndr_ty) of
-        Just tc
-          | isAbstractTyCon tc -> look_for_better_tycon
-          | isAlgTyCon tc      -> AlgAlt tc
-          | otherwise          -> ASSERT2( _is_poly_alt_tycon tc, ppr tc )
-                                  PolyAlt
-        Nothing                -> PolyAlt
+      [rep]
+        | rep == LiftedRep
+        -> case tyConAppTyCon_maybe (unwrapType bndr_ty) of
+            Just tc
+              | isAbstractTyCon tc -> look_for_better_tycon
+              | isAlgTyCon tc      -> AlgAlt tc
+              | otherwise          -> ASSERT2( _is_poly_alt_tycon tc, ppr tc )
+                                      PolyAlt
+            Nothing                -> PolyAlt
+
+        | rep == UnliftedRep
+        , Just tc <- tyConAppTyCon_maybe (unwrapType bndr_ty)
+        , isAlgTyCon tc
+        -> AlgAlt tc
+
       [unlifted] -> PrimAlt unlifted
       not_unary  -> MultiValAlt (length not_unary)
   where

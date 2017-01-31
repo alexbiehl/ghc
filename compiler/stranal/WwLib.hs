@@ -706,7 +706,7 @@ mkWWcpr_help :: (DataCon, [Type], [(Type,StrictnessMark)], Coercion)
 
 mkWWcpr_help (data_con, inst_tys, arg_tys, co)
   | [arg1@(arg_ty1, _)] <- arg_tys
-  , isUnliftedType arg_ty1
+  , isUnliftedType arg_ty1 && not (isAlgType arg_ty1)
         -- Special case when there is a single result of unlifted type
         --
         -- Wrapper:     case (..call worker..) of x -> C x

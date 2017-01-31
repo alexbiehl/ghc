@@ -1594,7 +1594,7 @@ tcGadtSigType doc name ty@(HsIB { hsib_vars = vars })
               tcExplicitTKBndrs gtvs $ \ exp_tvs ->
               do { ctxt <- tcHsContext cxt
                  ; btys <- tcConArgs hs_details
-                 ; ty' <- tcHsLiftedType res_ty
+                 ; ty' <- tcHsOpenType res_ty
                  ; field_lbls <- lookupConstructorFields name
                  ; let (arg_tys, stricts) = unzip btys
                        bound_vars = allBoundVariabless ctxt `unionVarSet`
@@ -1784,9 +1784,7 @@ rejigConRes tmpl_bndrs res_tmpl dc_tvs res_ty
         --          z
         -- Existentials are the leftover type vars: [x,y]
         -- So we return ([a,b,z], [x,y], [a~(x,y),b~z], T [(x,y)] z z)
-  | Just subst <- ASSERT( isLiftedTypeKind (typeKind res_ty) )
-                  ASSERT( isLiftedTypeKind (typeKind res_tmpl) )
-                  tcMatchTy res_tmpl res_ty
+  | Just subst <- tcMatchTy res_tmpl res_ty
   = let (univ_tvs, raw_eqs, kind_subst) = mkGADTVars tmpl_tvs dc_tvs subst
         raw_ex_tvs = dc_tvs `minusList` univ_tvs
         (arg_subst, substed_ex_tvs)
@@ -2354,9 +2352,6 @@ checkNewDataCon :: DataCon -> TcM ()
 checkNewDataCon con
   = do  { checkTc (isSingleton arg_tys) (newtypeFieldErr con (length arg_tys))
               -- One argument
-
-        ; checkTc (not (isUnliftedType arg_ty1)) $
-          text "A newtype cannot have an unlifted argument type"
 
         ; check_con (null eq_spec) $
           text "A newtype constructor must have a return type of form T a1 ... an"

@@ -121,7 +121,7 @@ module TyCon(
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, pprType )
+import {-# SOURCE #-} TyCoRep    ( Kind, Type, PredType, isUnliftedTypeKind, pprType )
 import {-# SOURCE #-} TysWiredIn ( runtimeRepTyCon, constraintKind
                                  , vecCountTyCon, vecElemTyCon, liftedTypeKind
                                  , mkFunKind, mkForAllKind )
@@ -1661,6 +1661,9 @@ isUnliftedTyCon (AlgTyCon { algTcRhs = rhs } )
   = not (isBoxed (tupleSortBoxity sort))
 isUnliftedTyCon (AlgTyCon { algTcRhs = rhs } )
   | SumTyCon {} <- rhs
+  = True
+isUnliftedTyCon (AlgTyCon { tyConResKind = res_kind })
+  | isUnliftedTypeKind res_kind
   = True
 isUnliftedTyCon _ = False
 

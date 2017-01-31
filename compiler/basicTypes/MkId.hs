@@ -754,7 +754,7 @@ dataConArgUnpack arg_ty
       -- A recursive newtype might mean that
       -- 'arg_ty' is a newtype
   , let rep_tys = dataConInstArgTys con tc_args
-  = ASSERT( isVanillaDataCon con )
+  = ASSERT( isVanillaDataCon con  || isUnliftedDataCon con )
     ( rep_tys `zip` dataConRepStrictness con
     ,( \ arg_id ->
        do { rep_ids <- mapM newLocal rep_tys
@@ -780,7 +780,7 @@ isUnpackableType :: DynFlags -> FamInstEnvs -> Type -> Bool
 isUnpackableType dflags fam_envs ty
   | Just (tc, _) <- splitTyConApp_maybe ty
   , Just con <- tyConSingleAlgDataCon_maybe tc
-  , isVanillaDataCon con
+  , isVanillaDataCon con || isUnliftedDataCon con
   = ok_con_args (unitNameSet (getName tc)) con
   | otherwise
   = False
@@ -793,7 +793,7 @@ isUnpackableType dflags fam_envs ty
       , let tc_name = getName tc
       =  not (tc_name `elemNameSet` tcs)
       && case tyConSingleAlgDataCon_maybe tc of
-            Just con | isVanillaDataCon con
+            Just con | isVanillaDataCon con || isUnliftedDataCon con
                     -> ok_con_args (tcs `extendNameSet` getName tc) con
             _ -> True
       | otherwise
