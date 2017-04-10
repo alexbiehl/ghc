@@ -32,6 +32,7 @@ module StringBuffer
         stepOn,
         offsetBytes,
         byteDiff,
+        atLine,
 
         -- * Conversion
         lexemeToString,
@@ -239,6 +240,44 @@ byteDiff s1 s2 = cur s2 - cur s1
 -- | Check whether a 'StringBuffer' is empty (analogous to 'Data.List.null').
 atEnd :: StringBuffer -> Bool
 atEnd (StringBuffer _ l c) = l == c
+
+-- | Computes a 'StringBuffer' which points to the first character of the
+-- wanted line. Lines begin at 1.
+atLine :: Int -> StringBuffer -> Maybe StringBuffer
+atLine (I# line) sb@(StringBuffer buf (I# len) _) =
+  inlinePerformIO $
+    withForeignPtr buf $ \(Ptr p) -> do
+      case skipToLine line len p of
+        p' | isNullPtr p' -> pure Nothing
+           | otherwise ->
+              let
+                delta = minusAddr# p' p
+              in pure $ Just (sb { cur = I# delta
+                                 , len = I# (len -# delta)
+                                 })
+  where
+    isNullPtr x = isTrue# (eqAddr# x (int2Addr# 0#))
+
+-- a fast non-allocating function to skip forward to a specific line
+skipToLine :: Int# -> Int# -> Addr# -> Addr#
+skipToLine line len op0  = go 1# op0
+  where
+    !nullptr = int2Addr# 0#
+    !opend   = plusAddr# op0 len
+
+    go i_line op
+      | isTrue# (geAddr# op opend) = nullptr
+      | isTrue# (i_line ==# line)  = op
+      | otherwise                  =
+        case indexWord8OffAddr# op 0# of
+          10## -> go (i_line +# 1#) (plusAddr# op 1#)
+          13## ->
+              -- this is safe because a 'StringBuffer' is
+              -- guaranteed to have 3 bytes sentinel values.
+              case indexWord8OffAddr# op 1# of
+                10## -> go (i_line +# 1#) (plusAddr# op 2#)
+                _    -> go (i_line +# 1#) (plusAddr# op 1#)
+          _    -> go i_line (plusAddr# op 1#)
 
 -- -----------------------------------------------------------------------------
 -- Conversion
