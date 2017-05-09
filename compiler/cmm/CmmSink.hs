@@ -336,8 +336,26 @@ walk dflags nodes assigs = go nodes emptyBlock assigs
 -- liveness analysis doesn't track those (yet) so we can't.
 --
 shouldSink :: DynFlags -> CmmNode e x -> Maybe Assignment
-shouldSink dflags (CmmAssign r e) | no_local_regs = Just (r, e, exprMem dflags e)
-  where no_local_regs = True -- foldRegsUsed (\_ _ -> False) True e
+shouldSink dflags (CmmAssign r e) = 
+  case r of 
+    CmmGLobal glob_reg 
+      | should_sink glob_reg -> Just (r, e, exprMem dflags e)
+    CmmLocal loc_reg   
+      | no_local_regs -> Just (r, e, exprMem dflags e)
+    _                 -> Nothing
+  where 
+    no_local_regs = True -- foldRegsUsed (\_ _ -> False) True e
+
+    -- don't touch the stg registers
+    should_sink VanillaReg{} = True
+    should_sink FloatReg{}   = True
+    should_sink DoubleReg{}  = True
+    should_sink LongReg{}    = True
+    should_sink XmmReg{}     = True
+    should_sink YmmReg{}     = True
+    should_sink ZmmReg{}     = True
+    should_sink _            = False
+
 shouldSink _ _other = Nothing
 
 --
