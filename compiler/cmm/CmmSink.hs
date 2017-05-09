@@ -17,6 +17,8 @@ import PprCmm ()
 
 import Data.List (partition)
 import qualified Data.Set as Set
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
 
 -- -----------------------------------------------------------------------------
@@ -133,7 +135,7 @@ import Data.Maybe
 
 -- -----------------------------------------------------------------------------
 
-type Assignment = (LocalReg, CmmExpr, AbsMem)
+type Assignment = (CmmReg, CmmExpr, AbsMem)
   -- Assignment caches AbsMem, an abstraction of the memory read by
   -- the RHS of the assignment.
 
@@ -146,7 +148,7 @@ type Assignments = [Assignment]
 cmmSink :: DynFlags -> CmmGraph -> CmmGraph
 cmmSink dflags graph = ofBlockList (g_entry graph) $ sink mapEmpty $ blocks
   where
-  liveness = cmmLocalLiveness dflags graph
+  liveness = cmmLiveness dflags graph
   getLive l = mapFindWithDefault Set.empty l liveness
 
   blocks = postorderDfs graph
@@ -245,7 +247,7 @@ isTrivial _ _          = False
 --
 -- annotate each node with the set of registers live *after* the node
 --
-annotate :: DynFlags -> LocalRegSet -> [CmmNode O O] -> [(LocalRegSet, CmmNode O O)]
+annotate :: DynFlags -> RegSet CmmReg -> [CmmNode O O] -> [(RegSet CmmReg, CmmNode O O)]
 annotate dflags live nodes = snd $ foldr ann (live,[]) nodes
   where ann n (live,nodes) = (gen_kill dflags n live, (live,n) : nodes)
 
@@ -264,7 +266,7 @@ findJoinPoints blocks = mapFilter (>1) succ_counts
 -- filter the list of assignments to remove any assignments that
 -- are not live in a continuation.
 --
-filterAssignments :: DynFlags -> LocalRegSet -> Assignments -> Assignments
+filterAssignments :: DynFlags -> RegSet CmmReg -> Assignments -> Assignments
 filterAssignments dflags live assigs = reverse (go assigs [])
   where go []             kept = kept
         go (a@(r,_,_):as) kept | needed    = go as (a:kept)
@@ -291,7 +293,7 @@ filterAssignments dflags live assigs = reverse (go assigs [])
 --
 
 walk :: DynFlags
-     -> [(LocalRegSet, CmmNode O O)]    -- nodes of the block, annotated with
+     -> [(RegSet CmmReg, CmmNode O O)]  -- nodes of the block, annotated with
                                         -- the set of registers live *after*
                                         -- this node.
 
@@ -306,6 +308,10 @@ walk :: DynFlags
 
 walk dflags nodes assigs = go nodes emptyBlock assigs
  where
+   go :: [(RegSet CmmReg, CmmNode O O)]
+      -> Block CmmNode e O
+      -> [Assignment]
+      -> (Block CmmNode e O, [Assignment])
    go []               block as = (block, as)
    go ((live,node):ns) block as
     | shouldDiscard node live           = go ns block as
@@ -330,7 +336,7 @@ walk dflags nodes assigs = go nodes emptyBlock assigs
 -- liveness analysis doesn't track those (yet) so we can't.
 --
 shouldSink :: DynFlags -> CmmNode e x -> Maybe Assignment
-shouldSink dflags (CmmAssign (CmmLocal r) e) | no_local_regs = Just (r, e, exprMem dflags e)
+shouldSink dflags (CmmAssign r e) | no_local_regs = Just (r, e, exprMem dflags e)
   where no_local_regs = True -- foldRegsUsed (\_ _ -> False) True e
 shouldSink _ _other = Nothing
 
@@ -345,16 +351,16 @@ shouldSink _ _other = Nothing
 -- out of inlining, but the inliner will see that r is live
 -- after the instruction and choose not to inline r in the rhs.
 --
-shouldDiscard :: CmmNode e x -> LocalRegSet -> Bool
+shouldDiscard :: CmmNode e x -> RegSet CmmReg -> Bool
 shouldDiscard node live
    = case node of
        CmmAssign r (CmmReg r') | r == r' -> True
-       CmmAssign (CmmLocal r) _ -> not (r `Set.member` live)
+       CmmAssign r _ -> not (r `Set.member` live)
        _otherwise -> False
 
 
 toNode :: Assignment -> CmmNode O O
-toNode (r,rhs,_) = CmmAssign (CmmLocal r) rhs
+toNode (r,rhs,_) = CmmAssign r rhs
 
 dropAssignmentsSimple :: DynFlags -> (Assignment -> Bool) -> Assignments
                       -> ([CmmNode O O], Assignments)
@@ -381,7 +387,7 @@ dropAssignments dflags should_drop state assigs
 
 tryToInline
    :: DynFlags
-   -> LocalRegSet               -- set of registers live after this
+   -> RegSet CmmReg             -- set of registers live after this
                                 -- node.  We cannot inline anything
                                 -- that is live after the node, unless
                                 -- it is small enough to duplicate.
@@ -394,8 +400,8 @@ tryToInline
 
 tryToInline dflags live node assigs = go usages node [] assigs
  where
-  usages :: UniqFM Int -- Maps each LocalReg to a count of how often it is used
-  usages = foldLocalRegsUsed dflags addUsage emptyUFM node
+  usages :: Map CmmReg Int -- Maps each register to a count of how often it is used
+  usages = foldRegsUsed dflags addUsage Map.empty node
 
   go _usages node _skipped [] = (node, [])
 
@@ -407,7 +413,7 @@ tryToInline dflags live node assigs = go usages node [] assigs
    | otherwise               = dont_inline
    where
         inline_and_discard = go usages' inl_node skipped rest
-          where usages' = foldLocalRegsUsed dflags addUsage usages rhs
+          where usages' = foldRegsUsed dflags addUsage usages rhs
 
         discard = go usages node skipped rest
 
@@ -416,8 +422,8 @@ tryToInline dflags live node assigs = go usages node [] assigs
 
         keep node' = (final_node, a : rest')
           where (final_node, rest') = go usages' node' (l:skipped) rest
-                usages' = foldLocalRegsUsed dflags (\m r -> addToUFM m r 2)
-                                            usages rhs
+                usages' = foldRegsUsed dflags (\m r -> Map.insert r 2 m)
+                                       usages rhs
                 -- we must not inline anything that is mentioned in the RHS
                 -- of a binding that we have already skipped, so we set the
                 -- usages of the regs on the RHS to 2.
@@ -426,7 +432,7 @@ tryToInline dflags live node assigs = go usages node [] assigs
                         || l `elem` skipped
                         || not (okToInline dflags rhs node)
 
-        l_usages = lookupUFM usages l
+        l_usages = Map.lookup l usages
         l_live   = l `elemRegSet` live
 
         occurs_once = not l_live && l_usages == Just 1
@@ -434,8 +440,8 @@ tryToInline dflags live node assigs = go usages node [] assigs
 
         inl_node = mapExpDeep inline node
                    -- mapExpDeep is where the inlining actually takes place!
-           where inline (CmmReg    (CmmLocal l'))     | l == l' = rhs
-                 inline (CmmRegOff (CmmLocal l') off) | l == l'
+           where inline (CmmReg    l')     | l == l' = rhs
+                 inline (CmmRegOff l' off) | l == l'
                     = cmmOffset dflags rhs off
                     -- re-constant fold after inlining
                  inline (CmmMachOp op args) = cmmMachOpFold dflags op args
@@ -486,14 +492,14 @@ tryToInline dflags live node assigs = go usages node [] assigs
 -- inline y, and we have a dead assignment to x.  If we don't notice
 -- that x is dead in tryToInline, we end up retaining it.
 
-addUsage :: UniqFM Int -> LocalReg -> UniqFM Int
-addUsage m r = addToUFM_C (+) m r 1
+addUsage :: Map CmmReg Int -> CmmReg -> Map CmmReg Int
+addUsage m r = Map.insertWith (+) r 1 m
 
-regsUsedIn :: [LocalReg] -> CmmExpr -> Bool
+regsUsedIn :: [CmmReg] -> CmmExpr -> Bool
 regsUsedIn [] _ = False
 regsUsedIn ls e = wrapRecExpf f e False
-  where f (CmmReg (CmmLocal l))      _ | l `elem` ls = True
-        f (CmmRegOff (CmmLocal l) _) _ | l `elem` ls = True
+  where f (CmmReg l)      _ | l `elem` ls = True
+        f (CmmRegOff l _) _ | l `elem` ls = True
         f _ z = z
 
 -- we don't inline into CmmUnsafeForeignCall if the expression refers
@@ -516,8 +522,7 @@ conflicts dflags (r, rhs, addr) node
 
   -- (1) node defines registers used by rhs of assignment. This catches
   -- assignments and all three kinds of calls. See Note [Sinking and calls]
-  | globalRegistersConflict dflags rhs node                       = True
-  | localRegistersConflict  dflags rhs node                       = True
+  | foldRegsDefd dflags (\b r' -> b || regUsedIn dflags r' rhs) False node = True
 
   -- (2) node uses register defined by assignment
   | foldRegsUsed dflags (\b r' -> r == r' || b) False node        = True

@@ -330,14 +330,32 @@ instance UserOfRegs GlobalReg CmmReg where
     foldRegsUsed _ _ z (CmmLocal _)    = z
     foldRegsUsed _ f z (CmmGlobal reg) = f z reg
 
+instance UserOfRegs CmmReg GlobalReg where
+    foldRegsUsed _ f z reg = f z (CmmGlobal reg)
+
+instance UserOfRegs CmmReg CmmReg where
+    foldRegsUsed _ f z r = f z r
+
+instance UserOfRegs GlobalReg GlobalReg where
+    foldRegsUsed _ f z r = f z r
+
 instance DefinerOfRegs GlobalReg CmmReg where
     foldRegsDefd _ _ z (CmmLocal _)    = z
     foldRegsDefd _ f z (CmmGlobal reg) = f z reg
 
-instance Ord r => UserOfRegs r r where
-    foldRegsUsed _ f z r = f z r
+instance DefinerOfRegs CmmReg GlobalReg where
+    foldRegsDefd _ f z r = f z (CmmGlobal r)
 
-instance Ord r => DefinerOfRegs r r where
+instance DefinerOfRegs CmmReg LocalReg where
+    foldRegsDefd _ f z r = f z (CmmLocal r)
+
+instance DefinerOfRegs LocalReg LocalReg where
+    foldRegsDefd _ f z reg = f z reg
+
+instance DefinerOfRegs GlobalReg GlobalReg where
+    foldRegsDefd _ f z reg = f z reg
+
+instance DefinerOfRegs CmmReg CmmReg where
     foldRegsDefd _ f z r = f z r
 
 instance (Ord r, UserOfRegs r CmmReg) => UserOfRegs r CmmExpr where

@@ -7,6 +7,7 @@ module CmmLive
     ( CmmLocalLive
     , cmmLocalLiveness
     , cmmGlobalLiveness
+    , cmmLiveness
     , liveLattice
     , gen_kill
     )
@@ -56,6 +57,10 @@ cmmLocalLiveness dflags graph =
 
 cmmGlobalLiveness :: DynFlags -> CmmGraph -> BlockEntryLiveness GlobalReg
 cmmGlobalLiveness dflags graph =
+    analyzeCmmBwd liveLattice (xferLive dflags) graph mapEmpty
+
+cmmLiveness :: DynFlags -> CmmGraph -> BlockEntryLiveness CmmReg
+cmmLiveness dflags graph =
     analyzeCmmBwd liveLattice (xferLive dflags) graph mapEmpty
 
 -- | On entry to the procedure, there had better not be any LocalReg's live-in.

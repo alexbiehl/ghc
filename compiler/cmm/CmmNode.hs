@@ -338,6 +338,20 @@ instance UserOfRegs GlobalReg (CmmNode e x) where
                => (b -> GlobalReg -> b) -> b -> a -> b
           fold f z n = foldRegsUsed dflags f z n
 
+instance UserOfRegs CmmReg (CmmNode e x) where
+  foldRegsUsed dflags f !z n = case n of
+    CmmAssign _ expr -> fold f z expr
+    CmmStore addr rval -> fold f (fold f z addr) rval
+    CmmUnsafeForeignCall t _ args -> fold f (fold f z t) args
+    CmmCondBranch expr _ _ _ -> fold f z expr
+    CmmSwitch expr _ -> fold f z expr
+    CmmCall {cml_target=tgt, cml_args_regs=args} -> fold f (fold f z args) tgt
+    CmmForeignCall {tgt=tgt, args=args} -> fold f (fold f z tgt) args
+    _ -> z
+    where fold :: forall a b.  UserOfRegs CmmReg a
+               => (b -> CmmReg -> b) -> b -> a -> b
+          fold f z n = foldRegsUsed dflags f z n
+
 instance (Ord r, UserOfRegs r CmmReg) => UserOfRegs r ForeignTarget where
   -- The (Ord r) in the context is necessary here
   -- See Note [Recursive superclasses] in TcInstDcls
@@ -372,6 +386,26 @@ instance DefinerOfRegs GlobalReg (CmmNode e x) where
 
           foreignTargetRegs (ForeignTarget _ (ForeignConvention _ _ _ CmmNeverReturns)) = []
           foreignTargetRegs _ = activeCallerSavesRegs
+
+instance DefinerOfRegs CmmReg (CmmNode e x) where
+  foldRegsDefd dflags f !z n = case n of
+    CmmAssign lhs _ -> fold f z lhs
+    CmmUnsafeForeignCall tgt fs _  -> fold f (fold f z fs) (foreignTargetRegs tgt)
+    CmmCall        {} -> fold f z activeRegs
+    CmmForeignCall {res=res} -> fold f (fold f z res) activeRegs
+    _ -> z
+    where fold :: forall a b. DefinerOfRegs CmmReg a
+               => (b -> CmmReg -> b) -> b -> a -> b
+          fold f z n = foldRegsDefd dflags f z n
+
+          platform = targetPlatform dflags
+          activeRegs = activeStgRegs platform
+          activeCallerSavesRegs = filter (callerSaves platform) activeRegs
+
+          foreignTargetRegs (ForeignTarget _ (ForeignConvention _ _ _ CmmNeverReturns)) = []
+          foreignTargetRegs _ = activeCallerSavesRegs
+
+
 
 -- Note [Safe foreign calls clobber STG registers]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
