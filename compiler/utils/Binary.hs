@@ -60,6 +60,7 @@ module Binary
 #include "../includes/MachDeps.h"
 
 import {-# SOURCE #-} Name (Name)
+import Encoding (utf8DecodeChar, utf8EncodeChar)
 import FastString
 import Panic
 import UniqFM
@@ -74,7 +75,6 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Internal as BS
 import qualified Data.ByteString.Unsafe   as BS
 import Data.IORef
-import Data.Char                ( ord, chr )
 import Data.Time
 #if MIN_VERSION_base(4,10,0)
 import Type.Reflection
@@ -160,7 +160,8 @@ openBinMem :: Int -> IO BinHandle
 openBinMem size
  | size <= 0 = error "Data.Binary.openBinMem: size must be >= 0"
  | otherwise = do
-   arr <- mallocForeignPtrBytes size
+   -- add some padding to make sure we never read uninitialized memory
+   arr <- mallocForeignPtrBytes (size + 4)
    arr_r <- newIORef arr
    ix_r <- newFastMutInt
    writeFastMutInt ix_r 0
@@ -235,26 +236,36 @@ expandBin (BinMem _ _ sz_r arr_r) off = do
 -- -----------------------------------------------------------------------------
 -- Low-level reading/writing of bytes
 
-putPrim :: BinHandle -> Int -> (Ptr Word8 -> IO ()) -> IO ()
-putPrim h@(BinMem _ ix_r sz_r arr_r) size f = do
+putBoundedPrim :: BinHandle -> Int -> (Ptr Word8 -> IO (Ptr Word8)) -> IO ()
+putBoundedPrim h@(BinMem _ ix_r sz_r arr_r) size f = do
   ix <- readFastMutInt ix_r
   sz <- readFastMutInt sz_r
   when (ix + size > sz) $
     expandBin h (ix + size)
   arr <- readIORef arr_r
-  withForeignPtr arr $ \op -> f (op `plusPtr` ix)
-  writeFastMutInt ix_r (ix + size)
+  ix' <- withForeignPtr arr $ \op -> do
+    op' <- f (op `plusPtr` ix)
+    pure $! (op' `minusPtr` op)
+  writeFastMutInt ix_r ix'
 
-getPrim :: BinHandle -> Int -> (Ptr Word8 -> IO a) -> IO a
-getPrim (BinMem _ ix_r sz_r arr_r) size f = do
+getBoundedPrim :: BinHandle -> Int -> (Ptr Word8 -> IO (a, Ptr Word8)) -> IO a
+getBoundedPrim (BinMem _ ix_r sz_r arr_r) size f = do
   ix <- readFastMutInt ix_r
   sz <- readFastMutInt sz_r
   when (ix + size > sz) $
       ioError (mkIOError eofErrorType "Data.Binary.getPrim" Nothing Nothing)
   arr <- readIORef arr_r
-  w <- withForeignPtr arr $ \op -> f (op `plusPtr` ix)
-  writeFastMutInt ix_r (ix + size)
+  (w, ix') <- withForeignPtr arr $ \op -> do
+    (x, op') <- f (op `plusPtr` ix)
+    pure (x, op' `minusPtr` op)
+  writeFastMutInt ix_r ix'
   return w
+
+putPrim :: BinHandle -> Int -> (Ptr Word8 -> IO ()) -> IO ()
+putPrim h n f = putBoundedPrim h n (\op -> f op >> pure (op `plusPtr` n))
+
+getPrim :: BinHandle -> Int -> (Ptr Word8 -> IO a) -> IO a
+getPrim h n f = getBoundedPrim h n (\op -> fmap (\x -> (x, op `plusPtr` n)) (f op))
 
 putWord8 :: BinHandle -> Word8 -> IO ()
 putWord8 h w = putPrim h 1 (\op -> poke op w)
@@ -385,8 +396,10 @@ instance Binary Bool where
     get  bh   = do x <- getWord8 bh; return $! (toEnum (fromIntegral x))
 
 instance Binary Char where
-    put_  bh c = put_ bh (fromIntegral (ord c) :: Word32)
-    get  bh   = do x <- get bh; return $! (chr (fromIntegral (x :: Word32)))
+    put_ bh c = putBoundedPrim bh 4 (utf8EncodeChar c)
+    get  bh   = getBoundedPrim bh 4 (\op ->
+                  case utf8DecodeChar op of
+                    (c, n) -> pure (c, op `plusPtr` n)
 
 instance Binary Int where
     put_ bh i = put_ bh (fromIntegral i :: Int64)
