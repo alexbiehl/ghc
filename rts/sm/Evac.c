@@ -28,6 +28,8 @@
 #include "CNF.h"
 #include "Scav.h"
 
+#include <string.h>
+
 #if defined(PROF_SPIN) && defined(THREADED_RTS) && defined(PARALLEL_GC)
 StgWord64 whitehole_spin = 0;
 #endif
@@ -93,19 +95,58 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
    -------------------------------------------------------------------------- */
 
 STATIC_INLINE GNUC_ATTR_HOT void
+copy_words(StgPtr from, StgPtr to, uint32_t size)
+{
+/*  // Includes a zero-count check.
+  intx temp;
+  __asm__ volatile("        testl   %6,%6       ;"
+                   "        jz      3f          ;"
+                   "        cmpl    $32,%6      ;"
+                   "        ja      2f          ;"
+                   "        subl    %4,%1       ;"
+                   "1:      movl    (%4),%3     ;"
+                   "        movl    %7,(%5,%4,1);"
+                   "        addl    $4,%0       ;"
+                   "        subl    $1,%2        ;"
+                   "        jnz     1b          ;"
+                   "        jmp     3f          ;"
+                   "2:      rep;    smovl       ;"
+                   "3:      nop                  "
+                   : "=S" (from), "=D" (to), "=c" (count), "=r" (temp)
+                   : "0"  (from), "1"  (to), "2"  (count), "3"  (temp)
+                   : "memory", "cc");*/
+
+
+    switch (size) {
+    case 8:  to[7] = from[7];
+    case 7:  to[6] = from[6];
+    case 6:  to[5] = from[5];
+    case 5:  to[4] = from[4];
+    case 4:  to[3] = from[3];
+    case 3:  to[2] = from[2];
+    case 2:  to[1] = from[1];
+    case 1:  to[0] = from[0];
+    case 0:  break;
+    default:
+        (void)memcpy(to, from, size * sizeof(*from));
+    }
+}
+
+STATIC_INLINE GNUC_ATTR_HOT void
 copy_tag(StgClosure **p, const StgInfoTable *info,
          StgClosure *src, uint32_t size, uint32_t gen_no, StgWord tag)
 {
     StgPtr to, from;
-    uint32_t i;
 
     to = alloc_for_copy(size,gen_no);
 
+    __builtin_prefetch(to, 1);
+
+
     from = (StgPtr)src;
     to[0] = (W_)info;
-    for (i = 1; i < size; i++) { // unroll for small i
-        to[i] = from[i];
-    }
+
+    copy_words(&from[1], &to[1], size - 1);
 
 //  if (to+size+2 < bd->start + BLOCK_SIZE_W) {
 //      __builtin_prefetch(to + size + 2, 1);
@@ -152,15 +193,12 @@ copy_tag_nolock(StgClosure **p, const StgInfoTable *info,
          StgClosure *src, uint32_t size, uint32_t gen_no, StgWord tag)
 {
     StgPtr to, from;
-    uint32_t i;
 
     to = alloc_for_copy(size,gen_no);
 
     from = (StgPtr)src;
     to[0] = (W_)info;
-    for (i = 1; i < size; i++) { // unroll for small i
-        to[i] = from[i];
-    }
+    copy_words(&from[1], &to[1], size - 1);
 
     // if somebody else reads the forwarding pointer, we better make
     // sure there's a closure at the end of it.
@@ -189,7 +227,6 @@ copyPart(StgClosure **p, StgClosure *src, uint32_t size_to_reserve,
          uint32_t size_to_copy, uint32_t gen_no)
 {
     StgPtr to, from;
-    uint32_t i;
     StgWord info;
 
 #if defined(PARALLEL_GC)
@@ -214,9 +251,7 @@ spin:
 
     from = (StgPtr)src;
     to[0] = info;
-    for (i = 1; i < size_to_copy; i++) { // unroll for small i
-        to[i] = from[i];
-    }
+    copy_words(&from[1], &to[1], size_to_copy - 1);
 
     write_barrier();
     src->header.info = (const StgInfoTable*)MK_FORWARDING_PTR(to);
