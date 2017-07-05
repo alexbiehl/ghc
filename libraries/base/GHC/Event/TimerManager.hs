@@ -50,7 +50,7 @@ import GHC.Show (Show(..))
 import GHC.Event.Clock (getMonotonicTimeNSec)
 import GHC.Event.Control
 import GHC.Event.Internal (Backend, Event, evtRead, Timeout(..))
-import GHC.Event.Unique (Unique, UniqueSource, newSource, newUnique)
+import GHC.Event.Unique (Unique, UniqueSource, asInt, newSource, newUnique)
 import System.Posix.Types (Fd)
 
 import qualified GHC.Event.Internal as I
@@ -66,7 +66,7 @@ import qualified GHC.Event.Poll   as Poll
 -- Types
 
 -- | A timeout registration cookie.
-newtype TimeoutKey   = TK Unique
+newtype TimeoutKey   = TK Int
     deriving (Eq)
 
 -- | Callback invoked on timeout events.
@@ -191,12 +191,12 @@ step mgr = do
            let (expired, tq') = Q.atMost now tq
                timeout = case Q.minView tq' of
                  Nothing             -> Forever
-                 Just (Q.E _ t _, _) ->
+                 Just (_, t, _, _) ->
                      -- This value will always be positive since the call
                      -- to 'atMost' above removed any timeouts <= 'now'
                      let t' = t - now in t' `seq` Timeout t'
            in (tq', (expired, timeout))
-      sequence_ $ map Q.value expired
+      sequence_ [callback | (_, _, callback) <- expired]
       return timeout
 
 -- | Wake up the event manager.
@@ -212,7 +212,7 @@ wakeManager mgr = sendWakeup (emControl mgr)
 -- time has passed.
 registerTimeout :: TimerManager -> Int -> TimeoutCallback -> IO TimeoutKey
 registerTimeout mgr us cb = do
-  !key <- newUnique (emUniqueSource mgr)
+  !key <- asInt `liftM` newUnique (emUniqueSource mgr)
   if us <= 0 then cb
     else do
       now <- getMonotonicTimeNSec
