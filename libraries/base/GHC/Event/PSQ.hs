@@ -72,13 +72,13 @@ type Key = Int
 -- | We store masks as the index of the bit that determines the branching.
 type Mask = Int
 
-type PSQ a = IntPSQ Prio a
+type PSQ a = IntPSQ a
 
 -- | A priority search queue with @Int@ keys and priorities of type @p@ and
 -- values of type @v@. It is strict in keys, priorities and values.
-data IntPSQ p v
-    = Bin {-# UNPACK #-} !Key !p !v {-# UNPACK #-} !Mask !(IntPSQ p v) !(IntPSQ p v)
-    | Tip {-# UNPACK #-} !Key !p !v
+data IntPSQ v
+    = Bin {-# UNPACK #-} !Key {-# UNPACK #-} !Prio !v {-# UNPACK #-} !Mask !(IntPSQ v) !(IntPSQ v)
+    | Tip {-# UNPACK #-} !Key {-# UNPACK #-} !Prio !v
     | Nil
 
 -- bit twiddling
@@ -143,12 +143,12 @@ highestBitMask (W# x) =
 ------------------------------------------------------------------------------
 
 -- | /O(1)/ True if the queue is empty.
-null :: IntPSQ p v -> Bool
+null :: IntPSQ v -> Bool
 null Nil = True
 null _   = False
 
 -- | /O(n)/ The number of elements stored in the queue.
-size :: IntPSQ p v -> Int
+size :: IntPSQ v -> Int
 size Nil               = 0
 size (Tip _ _ _)       = 1
 size (Bin _ _ _ _ l r) = 1 + size l + size r
@@ -156,7 +156,7 @@ size (Bin _ _ _ _ l r) = 1 + size l + size r
 
 -- | /O(min(n,W))/ The priority and value of a given key, or 'Nothing' if the
 -- key is not bound.
-lookup :: Int -> IntPSQ p v -> Maybe (p, v)
+lookup :: Key -> IntPSQ v -> Maybe (Prio, v)
 lookup k = go
   where
     go t = case t of
@@ -173,7 +173,7 @@ lookup k = go
           | otherwise      -> go r
 
 -- | /O(1)/ The element with the lowest priority.
-findMin :: Ord p => IntPSQ p v -> Maybe (Int, p, v)
+findMin :: IntPSQ v -> Maybe (Key, Prio, v)
 findMin t = case t of
     Nil             -> Nothing
     Tip k p x       -> Just (k, p, x)
@@ -185,11 +185,11 @@ findMin t = case t of
 ------------------------------------------------------------------------------
 
 -- | /O(1)/ The empty queue.
-empty :: IntPSQ p v
+empty :: IntPSQ v
 empty = Nil
 
 -- | /O(1)/ Build a queue with one element.
-singleton :: Ord p => Int -> p -> v -> IntPSQ p v
+singleton :: Key -> Prio -> v -> IntPSQ v
 singleton = Tip
 
 
@@ -200,13 +200,13 @@ singleton = Tip
 -- | /O(min(n,W))/ Insert a new key, priority and value into the queue. If the key
 -- is already present in the queue, the associated priority and value are
 -- replaced with the supplied priority and value.
-insert :: Ord p => Int -> p -> v -> IntPSQ p v -> IntPSQ p v
+insert :: Key -> Prio -> v -> IntPSQ v -> IntPSQ v
 insert k p x t0 = unsafeInsertNew k p x (delete k t0)
 
 -- | Internal function to insert a key that is *not* present in the priority
 -- queue.
 {-# INLINABLE unsafeInsertNew #-}
-unsafeInsertNew :: Ord p => Key -> p -> v -> IntPSQ p v -> IntPSQ p v
+unsafeInsertNew :: Key -> Prio -> v -> IntPSQ v -> IntPSQ v
 unsafeInsertNew k p x = go
   where
     go t = case t of
@@ -234,7 +234,7 @@ unsafeInsertNew k p x = go
                   else Bin k' p' x' m l (unsafeInsertNew k  p  x  r)
 
 -- | Link
-link :: Key -> p -> v -> Key -> IntPSQ p v -> IntPSQ p v -> IntPSQ p v
+link :: Key -> Prio -> v -> Key -> IntPSQ v -> IntPSQ v -> IntPSQ v
 link k p x k' k't otherTree
   | zero m k' = Bin k p x m k't       otherTree
   | otherwise = Bin k p x m otherTree k't
@@ -249,7 +249,7 @@ link k p x k' k't otherTree
 -- | /O(min(n,W))/ Delete a key and its priority and value from the queue. When
 -- the key is not a member of the queue, the original queue is returned.
 {-# INLINABLE delete #-}
-delete :: Ord p => Int -> IntPSQ p v -> IntPSQ p v
+delete :: Key -> IntPSQ v -> IntPSQ v
 delete k = go
   where
     go t = case t of
@@ -269,7 +269,7 @@ delete k = go
 -- rest of the queue stripped of that binding. In case the queue is empty, the
 -- empty queue is returned again.
 {-# INLINE deleteMin #-}
-deleteMin :: Ord p => IntPSQ p v -> IntPSQ p v
+deleteMin :: IntPSQ v -> IntPSQ v
 deleteMin t = case minView t of
     Nothing            -> t
     Just (_, _, _, t') -> t'
@@ -291,11 +291,10 @@ adjust f k q = case alter g k q of (_, q') -> q'
 -- in a queue. It also allows you to calculate an additional value @b@.
 {-# INLINE alter #-}
 alter
-    :: Ord p
-    => (Maybe (p, v) -> (b, Maybe (p, v)))
+    :: (Maybe (Prio, v) -> (b, Maybe (Prio, v)))
     -> Key
-    -> IntPSQ p v
-    -> (b, IntPSQ p v)
+    -> IntPSQ v
+    -> (b, IntPSQ v)
 alter f = \k t0 ->
     let (t, mbX) = case deleteView k t0 of
                             Nothing          -> (t0, Nothing)
@@ -310,14 +309,14 @@ alter f = \k t0 ->
 -- | Smart constructor for a 'Bin' node whose left subtree could have become
 -- 'Nil'.
 {-# INLINE binShrinkL #-}
-binShrinkL :: Key -> p -> v -> Mask -> IntPSQ p v -> IntPSQ p v -> IntPSQ p v
+binShrinkL :: Key -> Prio -> v -> Mask -> IntPSQ v -> IntPSQ v -> IntPSQ v
 binShrinkL k p x m Nil r = case r of Nil -> Tip k p x; _ -> Bin k p x m Nil r
 binShrinkL k p x m l   r = Bin k p x m l r
 
 -- | Smart constructor for a 'Bin' node whose right subtree could have become
 -- 'Nil'.
 {-# INLINE binShrinkR #-}
-binShrinkR :: Key -> p -> v -> Mask -> IntPSQ p v -> IntPSQ p v -> IntPSQ p v
+binShrinkR :: Key -> Prio -> v -> Mask -> IntPSQ v -> IntPSQ v -> IntPSQ v
 binShrinkR k p x m l Nil = case l of Nil -> Tip k p x; _ -> Bin k p x m l Nil
 binShrinkR k p x m l r   = Bin k p x m l r
 
@@ -329,7 +328,7 @@ binShrinkR k p x m l r   = Bin k p x m l r
 -- the key was present, the associated priority and value are returned in
 -- addition to the updated queue.
 {-# INLINABLE deleteView #-}
-deleteView :: Ord p => Key -> IntPSQ p v -> Maybe (p, v, IntPSQ p v)
+deleteView :: Key -> IntPSQ v -> Maybe (Prio, v, IntPSQ v)
 deleteView k t0 =
     case delFrom t0 of
       (# _, Nothing     #) -> Nothing
@@ -358,7 +357,7 @@ deleteView k t0 =
 -- | /O(min(n,W))/ Retrieve the binding with the least priority, and the
 -- rest of the queue stripped of that binding.
 {-# INLINE minView #-}
-minView :: Ord p => IntPSQ p v -> Maybe (Key, p, v, IntPSQ p v)
+minView :: IntPSQ v -> Maybe (Key, Prio, v, IntPSQ v)
 minView t = case t of
     Nil             -> Nothing
     Tip k p x       -> Just (k, p, x, Nil)
@@ -368,7 +367,7 @@ minView t = case t of
 -- and the rest of the queue stripped of these elements.  The returned list of
 -- elements can be in any order: no guarantees there.
 {-# INLINABLE atMost #-}
-atMost :: Ord p => p -> IntPSQ p v -> ([(Key, p, v)], IntPSQ p v)
+atMost :: Prio -> IntPSQ v -> ([(Key, Prio, v)], IntPSQ v)
 atMost pt t0 = go [] t0
   where
     go acc t = case t of
@@ -392,7 +391,7 @@ atMost pt t0 = go [] t0
 -- | Internal function that merges two *disjoint* 'IntPSQ's that share the
 -- same prefix mask.
 {-# INLINABLE merge #-}
-merge :: Ord p => Mask -> IntPSQ p v -> IntPSQ p v -> IntPSQ p v
+merge :: Mask -> IntPSQ v -> IntPSQ v -> IntPSQ v
 merge m l r = case l of
     Nil -> r
 
