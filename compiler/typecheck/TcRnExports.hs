@@ -273,8 +273,8 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
 
     -------------
 
-    mk_ie :: IE GhcRn -> AvailInfo -> RnM (IE GhcRn, AvailInfo)
-    mk_ie ie avail = do
+    wrap_ie :: IE GhcRn -> AvailInfo -> RnM (IE GhcRn, AvailInfo)
+    wrap_ie ie avail = do
       dflags <- getDynFlags
       if gopt Opt_Haddock dflags
         then pure (IEAvails ie avail, avail)
@@ -283,17 +283,17 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
     lookup_ie :: IE GhcPs -> RnM (IE GhcRn, AvailInfo)
     lookup_ie (IEVar (L l rdr))
         = do (name, avail) <- lookupGreAvailRn $ ieWrappedName rdr
-             mk_ie (IEVar (L l (replaceWrappedName rdr name))) avail
+             wrap_ie (IEVar (L l (replaceWrappedName rdr name))) avail
 
     lookup_ie (IEThingAbs (L l rdr))
         = do (name, avail) <- lookupGreAvailRn $ ieWrappedName rdr
-             mk_ie (IEThingAbs (L l (replaceWrappedName rdr name))) avail
+             wrap_ie (IEThingAbs (L l (replaceWrappedName rdr name))) avail
 
     lookup_ie ie@(IEThingAll n')
         = do
             (n, avail, flds) <- lookup_ie_all ie n'
             let name = unLoc n
-            mk_ie
+            wrap_ie
               (IEThingAll (replaceLWrappedName n' (unLoc n)))
               (AvailTC name (name:avail) flds)
 
@@ -308,7 +308,7 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
             let name = unLoc lname
                 subs' = map (replaceLWrappedName l . unLoc) subs
 
-            mk_ie
+            wrap_ie
               (IEThingWith (replaceLWrappedName l name) wc subs'
                               (map noLoc (flds ++ all_flds)))
               (AvailTC name (name : avails ++ all_avail)
