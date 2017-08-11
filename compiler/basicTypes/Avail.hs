@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, DeriveDataTypeable #-}
 --
 -- (c) The University of Glasgow
 --
@@ -38,6 +38,8 @@ import Util
 import Data.List ( find )
 import Data.Function
 
+import Data.Data
+
 -- -----------------------------------------------------------------------------
 -- The AvailInfo type
 
@@ -59,7 +61,7 @@ data AvailInfo = Avail Name      -- ^ An ordinary identifier in scope
                                  --     to be in scope, it must be
                                  --     *first* in this list.  Thus,
                                  --     typically: @AvailTC Eq [Eq, ==, \/=]@
-                deriving( Eq )
+                deriving( Eq, Data )
                         -- Equality used when deciding if the
                         -- interface has changed
 

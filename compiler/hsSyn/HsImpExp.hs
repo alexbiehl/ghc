@@ -14,6 +14,7 @@ HsImpExp: Abstract syntax: imports, exports, interfaces
 
 module HsImpExp where
 
+import Avail            ( AvailInfo )
 import Module           ( ModuleName )
 import HsDoc            ( HsDocString )
 import OccName          ( HasOccName(..), isTcOcc, isSymOcc )
@@ -214,6 +215,10 @@ data IE name
   | IEGroup             Int HsDocString  -- ^ Doc section heading
   | IEDoc               HsDocString      -- ^ Some documentation
   | IEDocNamed          String           -- ^ Reference to named doc
+
+  | IEAvails            (IE name) AvailInfo
+        -- ^ Haddock remember the actual exported names of an 'IE'
+
   -- deriving (Eq, Data)
 deriving instance (Eq name, Eq (IdP name)) => Eq (IE name)
 deriving instance (DataId name)             => Data (IE name)
@@ -243,6 +248,7 @@ ieName (IEVar (L _ n))              = ieWrappedName n
 ieName (IEThingAbs  (L _ n))        = ieWrappedName n
 ieName (IEThingWith (L _ n) _ _ _)  = ieWrappedName n
 ieName (IEThingAll  (L _ n))        = ieWrappedName n
+ieName (IEAvails ie _)              = ieName ie
 ieName _ = panic "ieName failed pattern match!"
 
 ieNames :: IE pass -> [IdP pass]
@@ -255,6 +261,7 @@ ieNames (IEModuleContents _    )     = []
 ieNames (IEGroup          _ _  )     = []
 ieNames (IEDoc            _    )     = []
 ieNames (IEDocNamed       _    )     = []
+ieNames (IEAvails ie _ )             = ieNames ie
 
 ieWrappedName :: IEWrappedName name -> name
 ieWrappedName (IEName    (L _ n)) = n
@@ -293,6 +300,7 @@ instance (OutputableBndrId pass) => Outputable (IE pass) where
     ppr (IEGroup n _)           = text ("<IEGroup: " ++ show n ++ ">")
     ppr (IEDoc doc)             = ppr doc
     ppr (IEDocNamed string)     = text ("<IEDocNamed: " ++ string ++ ">")
+    ppr (IEAvails ie _)         = ppr ie
 
 instance (HasOccName name) => HasOccName (IEWrappedName name) where
   occName w = occName (ieWrappedName w)

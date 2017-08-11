@@ -272,22 +272,30 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
                     return (ExportAccum (L loc new_ie : lie_names) occs' (avail : exports))
 
     -------------
+
+    mk_ie :: IE GhcRn -> AvailInfo -> RnM (IE GhcRn, AvailInfo)
+    mk_ie ie avail = do
+      dflags <- getDynFlags
+      if gopt Opt_Haddock dflags
+        then pure (IEAvails ie avail, avail)
+        else pure (ie, avail)
+
     lookup_ie :: IE GhcPs -> RnM (IE GhcRn, AvailInfo)
     lookup_ie (IEVar (L l rdr))
         = do (name, avail) <- lookupGreAvailRn $ ieWrappedName rdr
-             return (IEVar (L l (replaceWrappedName rdr name)), avail)
+             mk_ie (IEVar (L l (replaceWrappedName rdr name))) avail
 
     lookup_ie (IEThingAbs (L l rdr))
         = do (name, avail) <- lookupGreAvailRn $ ieWrappedName rdr
-             return (IEThingAbs (L l (replaceWrappedName rdr name)), avail)
+             mk_ie (IEThingAbs (L l (replaceWrappedName rdr name))) avail
 
     lookup_ie ie@(IEThingAll n')
         = do
             (n, avail, flds) <- lookup_ie_all ie n'
             let name = unLoc n
-            return (IEThingAll (replaceLWrappedName n' (unLoc n))
-                   , AvailTC name (name:avail) flds)
-
+            mk_ie
+              (IEThingAll (replaceLWrappedName n' (unLoc n)))
+              (AvailTC name (name:avail) flds)
 
     lookup_ie ie@(IEThingWith l wc sub_rdrs _)
         = do
@@ -299,13 +307,12 @@ exports_from_avail (Just (L _ rdr_items)) rdr_env imports this_mod
                 IEWildcard _ -> lookup_ie_all ie l
             let name = unLoc lname
                 subs' = map (replaceLWrappedName l . unLoc) subs
-            return (IEThingWith (replaceLWrappedName l name) wc subs'
-                                (map noLoc (flds ++ all_flds)),
-                    AvailTC name (name : avails ++ all_avail)
+
+            mk_ie
+              (IEThingWith (replaceLWrappedName l name) wc subs'
+                              (map noLoc (flds ++ all_flds)))
+              (AvailTC name (name : avails ++ all_avail)
                                  (flds ++ all_flds))
-
-
-
 
     lookup_ie _ = panic "lookup_ie"    -- Other cases covered earlier
 
@@ -645,7 +652,7 @@ dupExport_ok n ie1 ie2
 
     single IEVar {}      = True
     single IEThingAbs {} = True
-    single _               = False
+    single _             = False
 
 
 dupModuleExport :: ModuleName -> SDoc
