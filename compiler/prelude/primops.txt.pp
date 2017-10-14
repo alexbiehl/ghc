@@ -1406,7 +1406,6 @@ primop  CompareByteArraysOp "compareByteArrays#" GenPrimOp
     range is found, respectively, to be byte-wise lexicographically
     less than, to match, or be greater than the second range.}
    with
-   out_of_line = True
    can_fail = True
 
 primop  CopyByteArrayOp "copyByteArray#" GenPrimOp

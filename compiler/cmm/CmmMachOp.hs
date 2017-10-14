@@ -577,6 +577,7 @@ data CallishMachOp
   | MO_Memcpy Int
   | MO_Memset Int
   | MO_Memmove Int
+  | MO_Memcmp Int
 
   | MO_PopCnt Width
   | MO_Clz Width
@@ -609,6 +610,7 @@ callishMachOpHints op = case op of
   MO_Memcpy _  -> ([], [AddrHint,AddrHint,NoHint])
   MO_Memset _  -> ([], [AddrHint,NoHint,NoHint])
   MO_Memmove _ -> ([], [AddrHint,AddrHint,NoHint])
+  MO_Memcmp _  -> ([], [AddrHint, AddrHint, NoHint])
   _            -> ([],[])
   -- empty lists indicate NoHint
 
@@ -618,4 +620,5 @@ machOpMemcpyishAlign op = case op of
   MO_Memcpy  align -> Just align
   MO_Memset  align -> Just align
   MO_Memmove align -> Just align
+  MO_Memcmp  align -> Just align
   _                -> Nothing

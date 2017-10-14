@@ -568,6 +568,10 @@ emitPrimOp _      [] CopyAddrToByteArrayOp [src,dst,dst_off,n] =
 emitPrimOp _      [] SetByteArrayOp [ba,off,len,c] =
     doSetByteArrayOp ba off len c
 
+-- Comparing byte arrays
+emitPrimOp _      [res] CompareByteArraysOp [ba1,ba1_off,ba2,ba2_off,n] =
+    doCompareByteArraysOp res ba1 ba1_off ba2 ba2_off n
+
 emitPrimOp _      [res] BSwap16Op [w] = emitBSwapCall res w W16
 emitPrimOp _      [res] BSwap32Op [w] = emitBSwapCall res w W32
 emitPrimOp _      [res] BSwap64Op [w] = emitBSwapCall res w W64
@@ -1720,6 +1724,17 @@ doNewByteArrayOp res_r n = do
     emit $ mkAssign (CmmLocal res_r) base
 
 -- ----------------------------------------------------------------------------
+-- Comparing byte arrays
+
+doCompareByteArraysOp :: LocalReg -> CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr -> CmmExpr
+                     -> FCode ()
+doCompareByteArraysOp res ba1 ba1_off ba2 ba2_off n = do
+    dflags <- getDynFlags
+    ba1_p <- assignTempE $ cmmOffsetExpr dflags (cmmOffsetB dflags ba1 (arrWordsHdrSize dflags)) ba1_off
+    ba2_p <- assignTempE $ cmmOffsetExpr dflags (cmmOffsetB dflags ba2 (arrWordsHdrSize dflags)) ba2_off
+    emitMemcmpCall res ba1_p ba2_p n 1
+
+-- ----------------------------------------------------------------------------
 -- Copying byte arrays
 
 -- | Takes a source 'ByteArray#', an offset in the source array, a
@@ -2212,6 +2227,13 @@ emitMemsetCall dst c n align = do
         [ {- no results -} ]
         (MO_Memset align)
         [ dst, c, n ]
+
+emitMemcmpCall :: LocalReg -> CmmExpr -> CmmExpr -> CmmExpr -> Int -> FCode ()
+emitMemcmpCall res ptr1 ptr2 n align = do
+    emitPrimCall
+        [ res ]
+        (MO_Memcmp align)
+        [ ptr1, ptr2, n ]
 
 emitBSwapCall :: LocalReg -> CmmExpr -> Width -> FCode ()
 emitBSwapCall res x width = do
