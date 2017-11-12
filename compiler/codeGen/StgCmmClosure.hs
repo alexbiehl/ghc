@@ -60,6 +60,12 @@ module StgCmmClosure (
         cafBlackHoleInfoTable,
         indStaticInfoTable,
         staticClosureNeedsLink,
+
+        FreeVarInfo(..),
+        mkFreeVarInfo,
+        shareableFreeVars,
+        FreeVarDetail(..),
+        fvDetailBinder
     ) where
 
 #include "../includes/MachDeps.h"
@@ -88,8 +94,10 @@ import BasicTypes
 import Outputable
 import DynFlags
 import Util
+import VarSet
 
 import Data.Coerce (coerce)
+import Data.List (nub, partition)
 
 -----------------------------------------------------------------------------
 --                Data types and synonyms
@@ -1087,3 +1095,94 @@ staticClosureNeedsLink :: Bool -> CmmInfoTable -> Bool
 staticClosureNeedsLink has_srt CmmInfoTable{ cit_rep = smrep }
   | isConRep smrep         = not (isStaticNoCafCon smrep)
   | otherwise              = has_srt -- needsSRT (cit_srt info_tbl)
+
+-- | To enable better sharing of free variables in nested closures
+-- 'FreeVarInfo' captures the closure binder and the actual free variables
+-- as well as their offsets in the closure.
+data FreeVarInfo =
+   MkFreeVarInfo {
+      fvInfoBndr      :: NonVoid Id
+        -- ^ the outer closures binder
+
+    , fvInfoFvs       :: IdSet
+        -- ^ the original free variables of the
+        -- outer closure
+
+    , fvInfoFvDetails :: [FreeVarDetail]
+        -- ^ the actual free variables of that
+        -- closure
+  }
+
+mkFreeVarInfo  :: Id -> [NonVoid Id] -> [FreeVarDetail] -> FreeVarInfo
+mkFreeVarInfo bndr orig_fvs fv_details =
+  MkFreeVarInfo {
+    fvInfoBndr = NonVoid bndr
+  , fvInfoFvs  = mkVarSet [ id | NonVoid id <- orig_fvs ]
+  , fvInfoFvDetails = fv_details
+  }
+
+shareableFreeVars :: [NonVoid Id]
+                  -> FreeVarInfo
+                  -> ( [NonVoid Id] -- effective free vars of the closure
+                     , [FreeVarDetail] -- free var details for for shared free vars
+                     )
+shareableFreeVars fvs fv_info
+  | is_fv_subset
+  , lengthAtLeast fvs 3 =
+      let
+        effective_fvs =
+          concat [ [ fvInfoBndr fv_info | not (null direct_fvs) ]
+                   -- if there are direct variables from the outer closure
+                   -- we have to include its binder here
+
+                  , nub [ indirectee | FvIndirect _ indirectee _ <- indirect_fvs ]
+                    -- if the outer closure already has indirect free
+                    -- variables just pass the indirectee down
+
+                  , [ nvid | nvid@(NonVoid id) <- fvs, not (elemVarSet id (fvInfoFvs fv_info))]
+                    -- free variables which can not be shared with the
+                    -- enclosing closure
+                  ]
+
+        shared_fv_details =
+             -- every direct binder of the outer closure becomes an indirect one
+             [ FvIndirect nvid (fvInfoBndr fv_info) off | FvDirect nvid off <- direct_fvs ]
+          ++ indirect_fvs
+
+      in (effective_fvs, shared_fv_details)
+  | otherwise = (fvs, [])
+  where
+    (direct_fvs, indirect_fvs) =
+      partition fvIsDirect (fvInfoFvDetails fv_info)
+
+    is_fv_subset =
+      isEmptyVarSet (delVarSetList (fvInfoFvs fv_info) [ id | NonVoid id <- fvs])
+
+-- | Details about the location of a free variable
+-- A free variable is either:
+--
+--   * Embedded at an offset in the free variables of a closure
+--   * Dereferenced through one other free variable
+--
+data FreeVarDetail = FvDirect   (NonVoid Id) !ByteOff
+                     -- ^ A free variable which is located in the
+                     -- closure itself at a given offsetn.
+
+                   | FvIndirect (NonVoid Id) (NonVoid Id) !ByteOff
+                     -- ^ An indirect free variable is a free
+                     -- variable which is a direct free variable
+                     -- dereferenced at a specific offset.
+
+instance Outputable FreeVarDetail where
+  ppr (FvDirect nvid off) =
+    text "{" <+> ppr nvid <+> text ", " <+> ppr off <+> text "}"
+  ppr (FvIndirect nvid indirectee off) =
+    text "{" <+> ppr nvid <+> text " -> " <+> ppr indirectee <+> text ", " <+> ppr off <+> text "}"
+
+fvDetailBinder :: FreeVarDetail -> NonVoid Id
+fvDetailBinder (FvDirect nvid _) = nvid
+fvDetailBinder (FvIndirect nvid _ _) = nvid
+
+fvIsDirect :: FreeVarDetail -> Bool
+fvIsDirect FvDirect{} = True
+fvIsDirect _ = False

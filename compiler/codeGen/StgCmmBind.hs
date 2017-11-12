@@ -112,11 +112,12 @@ cgTopRhsClosure dflags rec id ccs _ upd_flag args body =
 
                  -- BUILD THE OBJECT, AND GENERATE INFO TABLE (IF NECESSARY)
         ; emitDataLits closure_label closure_rep
-        ; let fv_details :: [(NonVoid Id, ByteOff)]
-              (_, _, fv_details) = mkVirtHeapOffsets dflags (isLFThunk lf_info) []
+        ; let fv_offsets :: [(NonVoid Id, ByteOff)]
+              (_, _, fv_offsets) = mkVirtHeapOffsets dflags (isLFThunk lf_info) []
+              fv_details = [ FvDirect nvid off | (nvid, off) <- fv_offsets ]
         -- Don't drop the non-void args until the closure info has been made
-        ; forkClosureBody (closureCodeBody True id closure_info ccs
-                                (nonVoidIds args) (length args) body fv_details)
+        ; forkClosureBody Nothing (closureCodeBody True id closure_info ccs
+                                    (nonVoidIds args) (length args) body fv_details)
 
         ; return () }
 
@@ -329,11 +330,23 @@ mkRhsClosure    dflags bndr _cc _bi
 
 ---------- Default case ------------------
 mkRhsClosure dflags bndr cc _ fvs upd_flag args body
-  = do  { let lf_info = mkClosureLFInfo dflags bndr NotTopLevel fvs upd_flag args
+  = do  {
+        ; menclosing_fv_info <- getEnclosingFreeVars
+        ; let shareable_fvs = do
+                fv_info <- menclosing_fv_info
+                return (shareableFreeVars fvs fv_info)
+
+              (final_fvs, shared_fv_details) =
+                case shareable_fvs of
+                  Nothing -> (fvs, [])
+                  Just shared -> shared
+
+              lf_info = mkClosureLFInfo dflags bndr NotTopLevel final_fvs upd_flag args
+
         ; (id_info, reg) <- rhsIdInfo bndr lf_info
-        ; return (id_info, gen_code lf_info reg) }
+        ; return (id_info, gen_code (final_fvs, shared_fv_details) lf_info reg) }
  where
- gen_code lf_info reg
+ gen_code (final_fvs, shared_fv_details) lf_info reg
   = do  {       -- LAY OUT THE OBJECT
         -- If the binder is itself a free variable, then don't store
         -- it in the closure.  Instead, just bind it to Node on entry.
@@ -342,28 +355,36 @@ mkRhsClosure dflags bndr cc _ fvs upd_flag args body
         -- _was_ a free var of its RHS, mkClosureLFInfo thinks it *is*
         -- stored in the closure itself, so it will make sure that
         -- Node points to it...
-        ; let   reduced_fvs = filter (NonVoid bndr /=) fvs
+        ; let reduced_fvs = filter (NonVoid bndr /=) final_fvs
 
         -- MAKE CLOSURE INFO FOR THIS CLOSURE
         ; mod_name <- getModuleName
         ; dflags <- getDynFlags
         ; let   name  = idName bndr
                 descr = closureDescription dflags mod_name name
-                fv_details :: [(NonVoid Id, ByteOff)]
-                (tot_wds, ptr_wds, fv_details)
+                fv_offsets :: [(NonVoid Id, ByteOff)]
+                (tot_wds, ptr_wds, fv_offsets)
                    = mkVirtHeapOffsets dflags (isLFThunk lf_info)
                                        (addIdReps reduced_fvs)
                 closure_info = mkClosureInfo dflags False       -- Not static
                                              bndr lf_info tot_wds ptr_wds
                                              descr
 
+                fv_details :: [FreeVarDetail]
+                fv_details =
+                     [ FvDirect nvid off | (nvid, off) <- fv_offsets ]
+                  ++ shared_fv_details
+
+                fv_info' | null reduced_fvs = Nothing
+                         | otherwise = Just (mkFreeVarInfo bndr final_fvs fv_details)
+
         -- BUILD ITS INFO TABLE AND CODE
-        ; forkClosureBody $
+        ; forkClosureBody fv_info' $
                 -- forkClosureBody: (a) ensure that bindings in here are not seen elsewhere
                 --                  (b) ignore Sequel from context; use empty Sequel
                 -- And compile the body
                 closureCodeBody False bndr closure_info cc (nonVoidIds args)
-                                (length args) body fv_details
+                                (length args) body (pprTrace "fv_details" (ppr fv_details) fv_details)
 
         -- BUILD THE OBJECT
 --      ; (use_cc, blame_cc) <- chooseDynCostCentres cc args body
@@ -372,7 +393,7 @@ mkRhsClosure dflags bndr cc _ fvs upd_flag args body
         ; let toVarArg (NonVoid a, off) = (NonVoid (StgVarArg a), off)
         ; let info_tbl = mkCmmInfo closure_info
         ; hp_plus_n <- allocDynClosure (Just bndr) info_tbl lf_info use_cc blame_cc
-                                         (map toVarArg fv_details)
+                                         (map toVarArg fv_offsets)
 
         -- RETURN
         ; return (mkRhsInit dflags reg lf_info hp_plus_n) }
@@ -430,7 +451,6 @@ mkClosureLFInfo dflags bndr top fvs upd_flag args
   | otherwise =
         mkLFReEntrant top (map fromNonVoid fvs) args (mkArgDescr dflags args)
 
-
 ------------------------------------------------------------------------
 --              The code for closures
 ------------------------------------------------------------------------
@@ -442,7 +462,7 @@ closureCodeBody :: Bool            -- whether this is a top-level binding
                 -> [NonVoid Id]    -- incoming args to the closure
                 -> Int             -- arity, including void args
                 -> StgExpr
-                -> [(NonVoid Id, ByteOff)] -- the closure's free vars
+                -> [FreeVarDetail] -- the closure's free vars
                 -> FCode ()
 
 {- There are two main cases for the code for closures.
@@ -525,14 +545,19 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
 
 -- A function closure pointer may be tagged, so we
 -- must take it into account when accessing the free variables.
-bind_fv :: (NonVoid Id, ByteOff) -> FCode (LocalReg, ByteOff)
-bind_fv (id, off) = do { reg <- rebindToReg id; return (reg, off) }
+bind_fv :: FreeVarDetail -> FCode (LocalReg, FreeVarDetail)
+bind_fv fv_detail =
+  do { reg <- rebindToReg (fvDetailBinder fv_detail)
+     ; return (reg, fv_detail)
+     }
 
-load_fvs :: LocalReg -> LambdaFormInfo -> [(LocalReg, ByteOff)] -> FCode ()
-load_fvs node lf_info = mapM_ (\ (reg, off) ->
+load_fvs :: LocalReg -> LambdaFormInfo -> [(LocalReg, FreeVarDetail)] -> FCode ()
+load_fvs node lf_info = mapM_ (\ (reg, fv_detail) ->
    do dflags <- getDynFlags
       let tag = lfDynTag dflags lf_info
-      emit $ mkTaggedObjectLoad dflags reg node off tag)
+      emit $ case fv_detail of
+        FvDirect _ off -> mkTaggedObjectLoad dflags reg node off tag
+        FvIndirect _ indir off -> mkTaggedObjectLoad dflags reg (idToReg dflags indir) off 0)
 
 -----------------------------------------
 -- The "slow entry" code for a function.  This entry point takes its
@@ -564,7 +589,7 @@ mkSlowEntryCode bndr cl_info arg_regs -- function closure is already in `Node'
   | otherwise = return ()
 
 -----------------------------------------
-thunkCode :: ClosureInfo -> [(NonVoid Id, ByteOff)] -> CostCentreStack
+thunkCode :: ClosureInfo -> [FreeVarDetail] -> CostCentreStack
           -> LocalReg -> Int -> StgExpr -> FCode ()
 thunkCode cl_info fv_details _cc node arity body
   = do { dflags <- getDynFlags

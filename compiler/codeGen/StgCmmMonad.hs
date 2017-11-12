@@ -45,6 +45,8 @@ module StgCmmMonad (
         getHpUsage,  setHpUsage, heapHWM,
         setVirtHp, getVirtHp, setRealHp,
 
+        getEnclosingFreeVars,
+
         getModuleName,
 
         -- ideally we wouldn't export these, but some other modules access internal state
@@ -167,7 +169,8 @@ data CgInfoDownwards        -- information only passed *downwards* by the monad
                                             -- as local jumps? See Note
                                             -- [Self-recursive tail calls] in
                                             -- StgCmmExpr
-        cgd_tick_scope:: CmmTickScope       -- Tick scope for new blocks & ticks
+        cgd_tick_scope:: CmmTickScope,      -- Tick scope for new blocks & ticks
+        cgd_free_vars :: Maybe FreeVarInfo  -- Free variables of the enclosing closure
   }
 
 type CgBindings = IdEnv CgIdInfo
@@ -292,7 +295,8 @@ initCgInfoDown dflags mod
                  , cgd_ticky     = mkTopTickyCtrLabel
                  , cgd_sequel    = initSequel
                  , cgd_self_loop = Nothing
-                 , cgd_tick_scope= GlobalScope }
+                 , cgd_tick_scope= GlobalScope
+                 , cgd_free_vars = Nothing }
 
 initSequel :: Sequel
 initSequel = Return
@@ -488,6 +492,10 @@ getThisPackage = liftM thisPackage getDynFlags
 withInfoDown :: FCode a -> CgInfoDownwards -> FCode a
 withInfoDown (FCode fcode) info_down = FCode $ \_ state -> fcode info_down state
 
+getEnclosingFreeVars :: FCode (Maybe FreeVarInfo)
+getEnclosingFreeVars =
+  FCode $ \info_down state -> (cgd_free_vars info_down, state)
+
 -- ----------------------------------------------------------------------------
 -- Get the current module name
 
@@ -565,7 +573,7 @@ tickScope code = do
 --                 Forking
 --------------------------------------------------------
 
-forkClosureBody :: FCode () -> FCode ()
+forkClosureBody :: Maybe FreeVarInfo -> FCode () -> FCode ()
 -- forkClosureBody compiles body_code in environment where:
 --   - sequel, update stack frame and self loop info are
 --     set to fresh values
@@ -573,14 +581,15 @@ forkClosureBody :: FCode () -> FCode ()
 --     that are passed in unchanged. It's up to the enclosed code to
 --     re-bind the free variables to a field of the closure.
 
-forkClosureBody body_code
+forkClosureBody fv_info body_code
   = do  { dflags <- getDynFlags
         ; info   <- getInfoDown
         ; us     <- newUniqSupply
         ; state  <- getState
         ; let body_info_down = info { cgd_sequel    = initSequel
                                     , cgd_updfr_off = initUpdFrameOff dflags
-                                    , cgd_self_loop = Nothing }
+                                    , cgd_self_loop = Nothing
+                                    , cgd_free_vars = fv_info }
               fork_state_in = (initCgState us) { cgs_binds = cgs_binds state }
               ((),fork_state_out) = doFCode body_code body_info_down fork_state_in
         ; setState $ state `addCodeBlocksFrom` fork_state_out }
