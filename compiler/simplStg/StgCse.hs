@@ -209,6 +209,11 @@ substArg :: CseEnv -> InStgArg -> OutStgArg
 substArg env (StgVarArg from) = StgVarArg (substVar env from)
 substArg _   (StgLitArg lit)  = StgLitArg lit
 
+substFreeVars :: CseEnv -> [StgFreeVar] -> [StgFreeVar]
+substFreeVars env fvs =
+  [ StgFreeVar (substVar env fv) (substVars env nested_fvs)
+  | StgFreeVar fv nested_fvs <- fvs ]
+
 substVars :: CseEnv -> [InId] -> [OutId]
 substVars env = map (substVar env)
 
@@ -379,7 +384,7 @@ stgCseRhs env bndr (StgRhsClosure ccs info occs upd args body)
           env2 = forgetCse env1 -- See note [Free variables of an StgClosure]
           body' = stgCseExpr env2 body
       in (Just (substVar env bndr, StgRhsClosure ccs info occs' upd args' body'), env)
-  where occs' = substVars env occs
+  where occs' = substFreeVars env occs
 
 -- Utilities
 

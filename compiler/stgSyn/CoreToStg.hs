@@ -718,6 +718,9 @@ coreToStgRhs scope_fv_info (bndr, rhs) = do
   where
     bndr_info = lookupFVInfo scope_fv_info bndr
 
+mkStgFreeVars :: FreeVarsInfo -> [StgFreeVar]
+mkStgFreeVars fvs = [ StgFreeVar id [] | id <- getFVs fvs  ]
+
 mkStgRhs :: FreeVarsInfo -> Id -> StgBinderInfo -> StgExpr -> StgRhs
 mkStgRhs = mkStgRhs' con_updateable
   where con_updateable _ _ = False
@@ -727,13 +730,13 @@ mkStgRhs' :: (DataCon -> [StgArg] -> Bool)
 mkStgRhs' con_updateable rhs_fvs bndr binder_info rhs
   | StgLam bndrs body <- rhs
   = StgRhsClosure noCCS binder_info
-                   (getFVs rhs_fvs)
+                   (mkStgFreeVars rhs_fvs)
                    ReEntrant
                    bndrs body
   | isJoinId bndr -- must be nullary join point
   = ASSERT(idJoinArity bndr == 0)
     StgRhsClosure noCCS binder_info
-                   (getFVs rhs_fvs)
+                   (mkStgFreeVars rhs_fvs)
                    ReEntrant -- ignored for LNE
                    [] rhs
   | StgConApp con args _ <- unticked_rhs
@@ -744,7 +747,7 @@ mkStgRhs' con_updateable rhs_fvs bndr binder_info rhs
     StgRhsCon noCCS con args
   | otherwise
   = StgRhsClosure noCCS binder_info
-                   (getFVs rhs_fvs)
+                   (mkStgFreeVars rhs_fvs)
                    upd_flag [] rhs
  where
 

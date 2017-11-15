@@ -12,7 +12,7 @@ generation.
 {-# LANGUAGE CPP #-}
 
 module StgSyn (
-        GenStgArg(..),
+        GenStgArg(..), GenStgFreeVar(..),
 
         GenStgTopBinding(..), GenStgBinding(..), GenStgExpr(..), GenStgRhs(..),
         GenStgAlt, AltType(..),
@@ -24,7 +24,7 @@ module StgSyn (
         combineStgBinderInfo,
 
         -- a set of synonyms for the most common (only :-) parameterisation
-        StgArg,
+        StgArg, StgFreeVar,
         StgTopBinding, StgBinding, StgExpr, StgRhs, StgAlt,
 
         -- a set of synonyms to distinguish in- and out variants
@@ -373,11 +373,13 @@ Here's the rest of the interesting stuff for @StgLet@s; the first
 flavour is for closures:
 -}
 
+data GenStgFreeVar occ = StgFreeVar occ [occ]
+
 data GenStgRhs bndr occ
   = StgRhsClosure
         CostCentreStack         -- CCS to be attached (default is CurrentCCS)
         StgBinderInfo           -- Info about how this binder is used (see below)
-        [occ]                   -- non-global free vars; a list, rather than
+        [GenStgFreeVar occ]     -- non-global free vars; a list, rather than
                                 -- a set, because order is important
         !UpdateFlag             -- ReEntrant | Updatable | SingleEntry
         [bndr]                  -- arguments; if empty, then not a function;
@@ -564,6 +566,7 @@ type StgTopBinding = GenStgTopBinding Id Id
 type StgBinding  = GenStgBinding  Id Id
 type StgArg      = GenStgArg      Id
 type StgExpr     = GenStgExpr     Id Id
+type StgFreeVar  = GenStgFreeVar  Id
 type StgRhs      = GenStgRhs      Id Id
 type StgAlt      = GenStgAlt      Id Id
 
@@ -682,6 +685,9 @@ pprStgTopBindings binds
 instance (Outputable bdee) => Outputable (GenStgArg bdee) where
     ppr = pprStgArg
 
+instance (Outputable bdee) => Outputable (GenStgFreeVar bdee) where
+    ppr = pprStgFreeVar
+
 instance (OutputableBndr bndr, Outputable bdee, Ord bdee)
                 => Outputable (GenStgTopBinding bndr bdee) where
     ppr = pprGenStgTopBinding
@@ -795,6 +801,9 @@ instance Outputable AltType where
   ppr (MultiValAlt n) = text "MultiAlt" <+> ppr n
   ppr (AlgAlt tc)     = text "Alg"    <+> ppr tc
   ppr (PrimAlt tc)    = text "Prim"   <+> ppr tc
+
+pprStgFreeVar :: (Outputable occ) => GenStgFreeVar occ -> SDoc
+pprStgFreeVar (StgFreeVar fv fvs) = ppr fv <+> braces (interppSP fvs)
 
 pprStgRhs :: (OutputableBndr bndr, Outputable bdee, Ord bdee)
           => GenStgRhs bndr bdee -> SDoc

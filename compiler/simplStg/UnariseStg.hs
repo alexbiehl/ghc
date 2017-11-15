@@ -698,9 +698,9 @@ unariseConArgBinder rho x =
       xs <- mkIds (mkFastString "us") (map primRepToType reps)
       return (extendRho rho x (MultiVal (map StgVarArg xs)), xs)
 
-unariseFreeVars :: UnariseEnv -> [InId] -> [OutId]
+unariseFreeVars :: UnariseEnv -> [StgFreeVar] -> [StgFreeVar]
 unariseFreeVars rho fvs
- = [ v | fv <- fvs, StgVarArg v <- unariseFreeVar rho fv ]
+ = [ v | fv <- fvs, Just v <- [unariseFreeVar rho fv] ]
    -- Notice that we filter out any StgLitArgs
    -- e.g.   case e of (x :: (# Int | Bool #))
    --           (# v | #) ->  ... let {g = \y. ..x...} in ...
@@ -709,12 +709,18 @@ unariseFreeVars rho fvs
    --       x :-> [1, v]
    --     we want to capture 'v', but not 1, in the free vars
 
-unariseFreeVar :: UnariseEnv -> Id -> [StgArg]
-unariseFreeVar rho x =
-  case lookupVarEnv rho x of
-    Just (MultiVal args) -> args
-    Just (UnaryVal arg)  -> [arg]
-    Nothing              -> [StgVarArg x]
+
+unariseFreeVar :: UnariseEnv -> StgFreeVar -> Maybe StgFreeVar
+unariseFreeVar rho (StgFreeVar fv fvs)
+  | [StgVarArg v] <- unarise' fv =
+      Just (StgFreeVar v [ v' | x <- fvs, StgVarArg v' <- unarise' x ])
+  | otherwise = Nothing
+  where
+    unarise' x =
+      case lookupVarEnv rho x of
+        Just (MultiVal args) -> args
+        Just (UnaryVal arg)  -> [arg]
+        Nothing              -> [StgVarArg x]
 
 --------------------------------------------------------------------------------
 

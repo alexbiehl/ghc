@@ -214,14 +214,14 @@ cgRhs id (StgRhsCon cc con args)
 {- See Note [GC recovery] in compiler/codeGen/StgCmmClosure.hs -}
 cgRhs id (StgRhsClosure cc bi fvs upd_flag args body)
   = do dflags <- getDynFlags
-       mkRhsClosure dflags id cc bi (nonVoidIds fvs) upd_flag args body
+       mkRhsClosure dflags id cc bi (nonVoidStgFreeVars fvs) upd_flag args body
 
 ------------------------------------------------------------------------
 --              Non-constructor right hand sides
 ------------------------------------------------------------------------
 
 mkRhsClosure :: DynFlags -> Id -> CostCentreStack -> StgBinderInfo
-             -> [NonVoid Id]                    -- Free vars
+             -> [NonVoid StgFreeVar]            -- Free vars
              -> UpdateFlag
              -> [Id]                            -- Args
              -> StgExpr
@@ -264,7 +264,7 @@ for semi-obvious reasons.
 
 ---------- Note [Selectors] ------------------
 mkRhsClosure    dflags bndr _cc _bi
-                [NonVoid the_fv]                -- Just one free var
+                [NonVoid (StgFreeVar the_fv [])] -- Just one free var
                 upd_flag                -- Updatable thunk
                 []                      -- A thunk
                 expr
@@ -309,7 +309,7 @@ mkRhsClosure    dflags bndr _cc _bi
                                -- args are all distinct local variables
                                -- The "-1" is for fun_id
     -- Missed opportunity:   (f x x) is not detected
-  , all (isGcPtrRep . idPrimRep . fromNonVoid) fvs
+  , all (isGcPtrRep . idPrimRep . fv . fromNonVoid) fvs
   , isUpdatable upd_flag
   , n_fvs <= mAX_SPEC_AP_SIZE dflags
   , not (gopt Opt_SccProfilingOn dflags)
@@ -321,6 +321,7 @@ mkRhsClosure    dflags bndr _cc _bi
   = cgRhsStdThunk bndr lf_info payload
 
   where
+    fv (StgFreeVar fv _) = fv
     n_fvs   = length fvs
     lf_info = mkApLFInfo bndr upd_flag n_fvs
     -- the payload has to be in the correct order, hence we can't
@@ -329,11 +330,13 @@ mkRhsClosure    dflags bndr _cc _bi
 
 ---------- Default case ------------------
 mkRhsClosure dflags bndr cc _ fvs upd_flag args body
-  = do  { let lf_info = mkClosureLFInfo dflags bndr NotTopLevel fvs upd_flag args
+  = do  { let fv_nvids = assertNonVoidIds [ fv | NonVoid (StgFreeVar fv _) <- fvs ]
+              lf_info = mkClosureLFInfo dflags bndr
+                          NotTopLevel fv_nvids upd_flag args
         ; (id_info, reg) <- rhsIdInfo bndr lf_info
-        ; return (id_info, gen_code lf_info reg) }
+        ; return (id_info, gen_code lf_info reg fv_nvids) }
  where
- gen_code lf_info reg
+ gen_code lf_info reg final_fvs
   = do  {       -- LAY OUT THE OBJECT
         -- If the binder is itself a free variable, then don't store
         -- it in the closure.  Instead, just bind it to Node on entry.
@@ -342,7 +345,7 @@ mkRhsClosure dflags bndr cc _ fvs upd_flag args body
         -- _was_ a free var of its RHS, mkClosureLFInfo thinks it *is*
         -- stored in the closure itself, so it will make sure that
         -- Node points to it...
-        ; let   reduced_fvs = filter (NonVoid bndr /=) fvs
+        ; let   reduced_fvs = filter (NonVoid bndr /=) final_fvs
 
         -- MAKE CLOSURE INFO FOR THIS CLOSURE
         ; mod_name <- getModuleName

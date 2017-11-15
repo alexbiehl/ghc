@@ -19,7 +19,7 @@ module StgCmmClosure (
         argPrimRep,
 
         NonVoid(..), fromNonVoid, nonVoidIds, nonVoidStgArgs,
-        assertNonVoidIds, assertNonVoidStgArgs,
+        nonVoidStgFreeVars, assertNonVoidIds, assertNonVoidStgArgs,
 
         -- * LambdaFormInfo
         LambdaFormInfo,         -- Abstract
@@ -145,6 +145,13 @@ nonVoidIds ids = [NonVoid id | id <- ids, not (isVoidTy (idType id))]
 assertNonVoidIds :: [Id] -> [NonVoid Id]
 assertNonVoidIds ids = ASSERT(not (any (isVoidTy . idType) ids))
                        coerce ids
+
+nonVoidStgFreeVars :: [StgFreeVar] -> [NonVoid StgFreeVar]
+nonVoidStgFreeVars = concatMap f
+  where
+    f (StgFreeVar fv nested_fvs)
+      | isVoidTy (idType fv) = []
+      | otherwise = [ NonVoid (StgFreeVar fv (filter (not . isVoidTy . idType) nested_fvs)) ]
 
 nonVoidStgArgs :: [StgArg] -> [NonVoid StgArg]
 nonVoidStgArgs args = [NonVoid arg | arg <- args, not (isVoidTy (stgArgType arg))]
