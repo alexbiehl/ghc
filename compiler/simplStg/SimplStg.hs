@@ -18,6 +18,7 @@ import StgLint          ( lintStgTopBindings )
 import StgStats         ( showStgStats )
 import UnariseStg       ( unarise )
 import StgCse           ( stgCse )
+import StgNc            ( stgNc )
 
 import DynFlags
 import Module           ( Module )
@@ -87,6 +88,13 @@ stg2stg dflags module_name binds
              in
              end_pass us "StgCse" ccs binds'
 
+          StgNC ->
+             {-# SCC "StgNc" #-}
+             let
+                 binds' = stgNc binds
+             in
+               end_pass us "StgNc" ccs binds'
+
     end_pass us2 what ccs binds2
       = do -- report verbosely, if required
            dumpIfSet_dyn dflags Opt_D_verbose_stg2stg what
@@ -104,6 +112,7 @@ stg2stg dflags module_name binds
 -- | Optional Stg-to-Stg passes.
 data StgToDo
   = StgCSE
+  | StgNC
   | StgDoMassageForProfiling  -- should be (next to) last
   | D_stg_stats
 
@@ -111,6 +120,7 @@ data StgToDo
 getStgToDo :: DynFlags -> [StgToDo]
 getStgToDo dflags
   = [ StgCSE                   | gopt Opt_StgCSE dflags] ++
+    [ StgNC                    | True ] ++
     [ StgDoMassageForProfiling | WayProf `elem` ways dflags] ++
     [ D_stg_stats              | stg_stats ]
   where

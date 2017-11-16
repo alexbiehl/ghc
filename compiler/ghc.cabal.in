@@ -403,6 +403,7 @@ Library
         SimplStg
         StgStats
         StgCse
+        StgNc            
         UnariseStg
         RepType
         Rules
