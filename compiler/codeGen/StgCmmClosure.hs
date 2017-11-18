@@ -16,7 +16,7 @@ module StgCmmClosure (
         ConTagZ, dataConTagZ,
 
         idPrimRep, isVoidRep, isGcPtrRep, addIdReps, addArgReps,
-        argPrimRep,
+        argPrimRep, addFreeVarReps, freeVarPrimRep,
 
         NonVoid(..), fromNonVoid, nonVoidIds, nonVoidStgArgs,
         nonVoidStgFreeVars, assertNonVoidIds, assertNonVoidStgArgs,
@@ -61,7 +61,17 @@ module StgCmmClosure (
         cafBlackHoleInfoTable,
         indStaticInfoTable,
         staticClosureNeedsLink,
-    ) where
+
+        -- * Free variables
+        FreeVarEnv(..),
+        lookupFreeVar,
+
+        FreeVarInfo,
+        emptyFreeVarInfo,
+        freeVarInfoFromList,
+        plusFreeVarInfo,
+        lookupFreeVarEnv
+        ) where
 
 #include "../includes/MachDeps.h"
 
@@ -87,6 +97,7 @@ import BasicTypes
 import Outputable
 import DynFlags
 import Util
+import VarEnv
 
 import Data.Coerce (coerce)
 
@@ -183,6 +194,13 @@ addArgReps :: [NonVoid StgArg] -> [NonVoid (PrimRep, StgArg)]
 addArgReps = map (\arg -> let arg' = fromNonVoid arg
                            in NonVoid (argPrimRep arg', arg'))
 
+addFreeVarReps :: [NonVoid StgFreeVar] -> [NonVoid (PrimRep, StgFreeVar)]
+addFreeVarReps = map (\fv -> let fv' = fromNonVoid fv
+                             in NonVoid (freeVarPrimRep fv', fv'))
+
+freeVarPrimRep :: StgFreeVar -> PrimRep
+freeVarPrimRep (StgFreeVar fv _) = typePrimRep1 (idType fv)
+
 argPrimRep :: StgArg -> PrimRep
 argPrimRep arg = typePrimRep1 (stgArgType arg)
 
@@ -275,7 +293,7 @@ mkLFLetNoEscape = LFLetNoEscape
 
 -------------
 mkLFReEntrant :: TopLevelFlag    -- True of top level
-              -> [Id]            -- Free vars
+              -> [StgFreeVar]    -- Free vars
               -> [Id]            -- Args
               -> ArgDescr        -- Argument descriptor
               -> LambdaFormInfo
@@ -287,7 +305,7 @@ mkLFReEntrant top fvs args arg_descr
   where os_info = idOneShotInfo (head args)
 
 -------------
-mkLFThunk :: Type -> TopLevelFlag -> [Id] -> UpdateFlag -> LambdaFormInfo
+mkLFThunk :: Type -> TopLevelFlag -> [StgFreeVar] -> UpdateFlag -> LambdaFormInfo
 mkLFThunk thunk_ty top fvs upd_flag
   = ASSERT( not (isUpdatable upd_flag) || not (isUnliftedType thunk_ty) )
     LFThunk top (null fvs)
@@ -1091,3 +1109,43 @@ staticClosureNeedsLink :: Bool -> CmmInfoTable -> Bool
 staticClosureNeedsLink has_srt CmmInfoTable{ cit_rep = smrep }
   | isConRep smrep         = not (isStaticNoCafCon smrep)
   | otherwise              = has_srt -- needsSRT (cit_srt info_tbl)
+
+--------------------------------------
+--   Accessing free variables of closures
+--------------------------------------
+
+-- | A mapping from free variable to its byte offset
+data FreeVarEnv = FreeVarEnv {
+    fveBinder :: Id
+  , fveLFInfo :: LambdaFormInfo
+  , fveFvs    :: IdEnv ByteOff
+  }
+
+lookupFreeVar :: FreeVarEnv -> NonVoid Id -> Maybe ByteOff
+lookupFreeVar fv_env (NonVoid id) = lookupVarEnv (fveFvs fv_env) id
+
+-- | An environment to access free variables of closures
+type FreeVarInfo = IdEnv FreeVarEnv
+
+freeVarInfoFromList :: Id
+                    -> LambdaFormInfo
+                    -> [(NonVoid Id, ByteOff)]
+                    -> FreeVarInfo
+freeVarInfoFromList bndr lf_info fvs =
+  let
+    fv_env =
+      FreeVarEnv {
+        fveBinder = bndr
+      , fveLFInfo = lf_info
+      , fveFvs    = mkVarEnv [ (id, off) | (NonVoid id, off) <- fvs ]
+      }
+  in unitVarEnv bndr fv_env
+
+emptyFreeVarInfo :: FreeVarInfo
+emptyFreeVarInfo = emptyVarEnv
+
+plusFreeVarInfo :: FreeVarInfo -> FreeVarInfo -> FreeVarInfo
+plusFreeVarInfo = plusVarEnv
+
+lookupFreeVarEnv :: FreeVarInfo -> Id -> Maybe FreeVarEnv
+lookupFreeVarEnv = lookupVarEnv
