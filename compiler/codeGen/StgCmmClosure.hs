@@ -73,6 +73,7 @@ import SMRep
 import Cmm
 import PprCmmExpr()
 
+import CoreSyn
 import BlockId
 import CLabel
 import Id
@@ -616,9 +617,11 @@ getCallMethod dflags name id (LFThunk _ _ updatable std_form_info is_fun)
 getCallMethod _ _name _ (LFUnknown True) _n_arg _v_args _cg_locs _self_loop_info
   = SlowCall -- might be a function
 
-getCallMethod _ name _ (LFUnknown False) n_args _v_args _cg_loc _self_loop_info
+getCallMethod _ name id (LFUnknown False) n_args _v_args _cg_loc _self_loop_info
   = ASSERT2( n_args == 0, ppr name <+> ppr n_args )
-    EnterIt -- Not a function
+    if isEvaldUnfolding (idUnfolding id)
+    then ReturnIt
+    else EnterIt
 
 getCallMethod _ _name _ LFLetNoEscape _n_args _v_args (LneLoc blk_id lne_regs)
               _self_loop_info

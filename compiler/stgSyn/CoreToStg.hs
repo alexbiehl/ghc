@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, RankNTypes #-}
 
 --
 -- (c) The GRASP/AQUA Project, Glasgow University, 1993-1998
@@ -16,6 +16,9 @@ module CoreToStg ( coreToStg, coreExprToStg ) where
 #include "HsVersions.h"
 
 import GhcPrelude
+
+import Name
+import Module
 
 import CoreSyn
 import CoreUtils        ( exprType, findDefault, isJoinBind )
@@ -49,6 +52,9 @@ import UniqFM
 
 import Data.Maybe    (isJust, fromMaybe)
 import Control.Monad (liftM, ap)
+
+import Debug.Trace
+
 
 -- Note [Live vs free]
 -- ~~~~~~~~~~~~~~~~~~~
@@ -337,7 +343,7 @@ mkTopStgRhs :: DynFlags -> Module -> FreeVarsInfo
             -> Id -> StgBinderInfo -> StgExpr
             -> StgRhs
 
-mkTopStgRhs dflags this_mod = mkStgRhs' con_updateable
+mkTopStgRhs dflags this_mod = mkStgRhs' id con_updateable
         -- Dynamic StgConApps are updatable
   where con_updateable con args = isDllConApp dflags this_mod con args
 
@@ -448,9 +454,10 @@ coreToStgExpr (Case scrut bndr _ alts) = do
             binders' = filterStgBinders binders
         in
         extendVarEnvCts [(b, LambdaBound) | b <- binders'] $ do
-        (rhs2, rhs_fvs) <- coreToStgExpr rhs
-        return ( (con, binders', rhs2),
-                 binders' `minusFVBinders` rhs_fvs )
+          withCaseBndrs binders' $ do
+            (rhs2, rhs_fvs) <- coreToStgExpr rhs
+            return ( (con, binders', rhs2),
+                     binders' `minusFVBinders` rhs_fvs )
 
 coreToStgExpr (Let bind body) = do
     coreToStgLet bind body
@@ -715,29 +722,65 @@ coreToStgRhs :: FreeVarsInfo      -- Free var info for the scope of the binding
              -> CtsM (StgRhs, FreeVarsInfo)
 
 coreToStgRhs scope_fv_info (bndr, rhs) = do
-    (new_rhs, rhs_fvs) <- coreToStgExpr rhs
-    return (mkStgRhs rhs_fvs bndr bndr_info new_rhs, rhs_fvs)
+
+  ~(new_rhs, rhs_fvs) <- mfix (\ ~(_, rhs_fvs) ->
+                                  withParentFvs rhs_fvs (coreToStgExpr rhs))
+  parent_fvs <- getParentFvs
+  n <- getNestingDepth
+
+  case_bndrs <- getCaseBinders
+
+  let
+    common_fvs      = intersectUFM parent_fvs rhs_fvs
+    comm_fv_count   = length (getFVs common_fvs)
+    rhs_fv_count    = length (getFVs rhs_fvs)
+    parent_fv_count = length (getFVs parent_fvs)
+    bndr_name       = getName bndr
+    modu            = maybe "<no-module>" moduleStableString (nameModule_maybe bndr_name)
+
+    case_bound_fvs  = [ ( rhs_fv_count - length (getFVs (minusFVBinders bndrs rhs_fvs))
+                        , length bndrs)
+                      | bndrs <- case_bndrs
+                      ]
+
+    tr = trace ("------> ("
+                 ++ show modu
+                 ++ ", "
+                 ++ show (nameStableString bndr_name)
+                 ++ ", "
+                 ++ show n
+                 ++  ", "
+                 ++ show rhs_fv_count
+                 ++ ", "
+                 ++ show parent_fv_count
+                 ++ ", "
+                 ++ show comm_fv_count
+                 ++ ", "
+                 ++ show case_bound_fvs
+                 ++ ")")
+
+  return (mkStgRhs tr rhs_fvs bndr bndr_info new_rhs, rhs_fvs)
   where
     bndr_info = lookupFVInfo scope_fv_info bndr
 
-mkStgRhs :: FreeVarsInfo -> Id -> StgBinderInfo -> StgExpr -> StgRhs
-mkStgRhs = mkStgRhs' con_updateable
+mkStgRhs :: (forall a. a -> a) -> FreeVarsInfo -> Id -> StgBinderInfo -> StgExpr -> StgRhs
+mkStgRhs tr = mkStgRhs' tr con_updateable
   where con_updateable _ _ = False
 
-mkStgRhs' :: (DataCon -> [StgArg] -> Bool)
+mkStgRhs' :: (forall a. a -> a) -> (DataCon -> [StgArg] -> Bool)
             -> FreeVarsInfo -> Id -> StgBinderInfo -> StgExpr -> StgRhs
-mkStgRhs' con_updateable rhs_fvs bndr binder_info rhs
+mkStgRhs' tr con_updateable rhs_fvs bndr binder_info rhs
   | StgLam bndrs body <- rhs
   = StgRhsClosure noCCS binder_info
                    (getFVs rhs_fvs)
                    ReEntrant
-                   bndrs body
+                   bndrs (tr body)
   | isJoinId bndr -- must be nullary join point
   = ASSERT(idJoinArity bndr == 0)
     StgRhsClosure noCCS binder_info
                    (getFVs rhs_fvs)
                    ReEntrant -- ignored for LNE
-                   [] rhs
+                   [] (tr rhs)
   | StgConApp con args _ <- unticked_rhs
   , not (con_updateable con args)
   = -- CorePrep does this right, but just to make sure
@@ -747,7 +790,7 @@ mkStgRhs' con_updateable rhs_fvs bndr binder_info rhs
   | otherwise
   = StgRhsClosure noCCS binder_info
                    (getFVs rhs_fvs)
-                   upd_flag [] rhs
+                   upd_flag [] (tr rhs)
  where
 
     (_, unticked_rhs) = stripStgTicksTop (not . tickishIsCode) rhs
@@ -816,6 +859,9 @@ isPAP env _               = False
 
 newtype CtsM a = CtsM
     { unCtsM :: IdEnv HowBound
+             -> [[Id]]
+             -> FreeVarsInfo
+             -> Int
              -> a
     }
 
@@ -861,19 +907,18 @@ topLevelBound _                   = False
 -- The std monad functions:
 
 initCts :: IdEnv HowBound -> CtsM a -> a
-initCts env m = unCtsM m env
-
+initCts env m = unCtsM m env [] emptyFVInfo 0
 
 
 {-# INLINE thenCts #-}
 {-# INLINE returnCts #-}
 
 returnCts :: a -> CtsM a
-returnCts e = CtsM $ \_ -> e
+returnCts e = CtsM $ \_ _ _ _ -> e
 
 thenCts :: CtsM a -> (a -> CtsM b) -> CtsM b
-thenCts m k = CtsM $ \env
-  -> unCtsM (k (unCtsM m env)) env
+thenCts m k = CtsM $ \env cases stack n
+  -> unCtsM (k (unCtsM m env cases stack n)) env cases stack n
 
 instance Functor CtsM where
     fmap = liftM
@@ -886,19 +931,36 @@ instance Monad CtsM where
     (>>=)  = thenCts
 
 instance MonadFix CtsM where
-    mfix expr = CtsM $ \env ->
-                       let result = unCtsM (expr result) env
+    mfix expr = CtsM $ \env cases stack n ->
+                       let result = unCtsM (expr result) env cases stack n
                        in  result
 
 -- Functions specific to this monad:
 
+getParentFvs :: CtsM FreeVarsInfo
+getParentFvs = CtsM $ \_ _ fv_info _ -> fv_info
+
+getNestingDepth :: CtsM Int
+getNestingDepth = CtsM $ \_ _ _ n -> n
+
+getCaseBinders :: CtsM [[Id]]
+getCaseBinders = CtsM $ \_ cases _ _ -> cases
+
+withParentFvs :: FreeVarsInfo -> CtsM a -> CtsM a
+withParentFvs fv_info expr = CtsM $ \env cases _ n -> unCtsM expr env [] fv_info (n + 1)
+
+withCaseBndrs :: [Id] -> CtsM a -> CtsM a
+withCaseBndrs bndrs expr =
+  CtsM $ \env cases fv n ->
+           unCtsM expr env (bndrs:cases) fv n
+
 extendVarEnvCts :: [(Id, HowBound)] -> CtsM a -> CtsM a
 extendVarEnvCts ids_w_howbound expr
-   =    CtsM $   \env
-   -> unCtsM expr (extendVarEnvList env ids_w_howbound)
+   =    CtsM $   \env cases stack n
+   -> unCtsM expr (extendVarEnvList env ids_w_howbound) cases stack n
 
 lookupVarCts :: Id -> CtsM HowBound
-lookupVarCts v = CtsM $ \env -> lookupBinding env v
+lookupVarCts v = CtsM $ \env _ _ _ -> lookupBinding env v
 
 lookupBinding :: IdEnv HowBound -> Id -> HowBound
 lookupBinding env v = case lookupVarEnv env v of
