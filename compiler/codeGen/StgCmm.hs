@@ -19,6 +19,7 @@ import StgCmmMonad
 import StgCmmEnv
 import StgCmmBind
 import StgCmmCon
+import StgCmmHeap (mkStaticClosureFields)
 import StgCmmLayout
 import StgCmmUtils
 import StgCmmClosure
@@ -140,9 +141,24 @@ cgTopBinding dflags (StgTopStringLit id str)
   = do  { id' <- maybeExternaliseId dflags id
         ; let label = mkBytesLabel (idName id')
         ; let (lit, decl) = mkByteStringCLit label (BS.unpack str)
+        ; emitArrWordLit dflags label str
         ; emitDecl decl
         ; addBindC (litIdInfo dflags id' mkLFStringLit lit)
         }
+
+-- TODO: move to apropriate place
+emitArrWordLit
+  :: DynFlags -> CLabel -> BS.ByteString -> FCode ()
+emitArrWordLit dflags lbl bytes
+  = emitDataLits lbl arrWordsLit
+  where
+    mkByteLit w8 =
+      CmmInt (toInteger w8) W8
+    info =
+      arrWordsInfoTable (BS.length bytes)
+    arrWordsLit =
+      mkStaticClosureFields dflags info noCCS NoCafRefs
+        (fmap mkByteLit (BS.unpack bytes))
 
 cgTopRhs :: DynFlags -> RecFlag -> Id -> StgRhs -> (CgIdInfo, FCode ())
         -- The Id is passed along for setting up a binding...

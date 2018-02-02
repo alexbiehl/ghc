@@ -174,7 +174,7 @@ mkStaticClosureFields
         -> [CmmLit]             -- Payload
         -> [CmmLit]             -- The full closure
 mkStaticClosureFields dflags info_tbl ccs caf_refs payload
-  = mkStaticClosure dflags info_lbl ccs payload padding
+  = mkStaticClosure dflags info_lbl ccs (length_field ++ payload) padding
         static_link_field saved_info_field
   where
     info_lbl = cit_lbl info_tbl
@@ -194,8 +194,12 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
     is_caf = isThunkRep (cit_rep info_tbl)
 
     padding
-        | is_caf && null payload = [mkIntCLit dflags 0]
-        | otherwise = []
+        | is_caf && null payload
+        = [mkIntCLit dflags 0]
+        | ArrayWordsRep bytes <- cit_rep info_tbl
+        = replicate (nonHdrSizeW (ArrayWordsRep bytes) - bytes) (CmmInt 0 W8)
+        | otherwise
+        = []
 
     static_link_field
         | is_caf || staticClosureNeedsLink (mayHaveCafRefs caf_refs) info_tbl
@@ -215,6 +219,12 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
         | otherwise                = mkIntCLit dflags 3  -- No CAF refs
                                       -- See Note [STATIC_LINK fields]
                                       -- in rts/sm/Storage.h
+
+    length_field
+      | ArrayWordsRep bytes <- cit_rep info_tbl
+      = [mkIntCLit dflags bytes]
+      | otherwise
+      = []
 
 mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
   -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]

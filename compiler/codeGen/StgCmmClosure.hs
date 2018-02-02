@@ -59,6 +59,7 @@ module StgCmmClosure (
         mkDataConInfoTable,
         cafBlackHoleInfoTable,
         indStaticInfoTable,
+        arrWordsInfoTable,
         staticClosureNeedsLink,
     ) where
 
@@ -1071,6 +1072,14 @@ indStaticInfoTable
                  , cit_rep  = indStaticRep
                  , cit_prof = NoProfilingInfo
                  , cit_srt  = NoC_SRT }
+
+arrWordsInfoTable :: ByteOff -> CmmInfoTable
+arrWordsInfoTable dflags bytes
+  = CmmInfoTable { cit_lbl  = mkArrWords_infoLabel
+                 , cit_rep  = arrWordsRep bytes
+                 , cit_prof = NoProfilingInfo
+                 , cit_srt  = NoC_SRT
+                 }
 
 staticClosureNeedsLink :: Bool -> CmmInfoTable -> Bool
 -- A static closure needs a link field to aid the GC when traversing
