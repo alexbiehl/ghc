@@ -210,19 +210,20 @@ INFO_TABLE(stg_PAP,/*special layout*/0,0,PAP,"PAP","PAP")
 
 stg_PAP_apply /* no args => explicit stack */
 {
-  W_ Words;
+  W_ Words, n;
   W_ pap;
 
   pap = R1;
 
   Words = TO_W_(StgPAP_n_args(pap));
+  n = WDS(Words);
 
   //
   // Check for stack overflow and bump the stack pointer.
   // We have a hand-rolled stack check fragment here, because none of
   // the canned ones suit this situation.
   //
-  if (Sp - (WDS(Words) + 2/* see ARG_BCO below */) < SpLim) {
+  if (Sp - (n + 2/* see ARG_BCO below */) < SpLim) {
       // there is a return address in R2 in the event of a
       // stack check failure.  The various stg_apply functions arrange
       // this before calling stg_PAP_entry.
@@ -240,17 +241,9 @@ stg_PAP_apply /* no args => explicit stack */
 #endif
 
   // Reload the stack
-  W_ i;
   W_ p;
   p = pap + SIZEOF_StgHeader + OFFSET_StgPAP_payload;
-  i = 0;
-for:
-  if (i < Words) {
-    Sp(i) = W_[p];
-    p = p + WDS(1);
-    i = i + 1;
-    goto for;
-  }
+  prim %memcpy(Sp, p, n, SIZEOF_W);
 
   R1 = StgPAP_fun(pap);
 
@@ -307,12 +300,13 @@ for:
 INFO_TABLE(stg_AP,/*special layout*/0,0,AP,"AP","AP")
  /* no args => explicit stack */
 {
-  W_ Words;
+  W_ Words, n;
   W_ ap;
 
   ap = R1;
 
   Words = TO_W_(StgAP_n_args(ap));
+  n = WDS(Words);
 
   /*
    * Check for stack overflow.  IMPORTANT: use a _ENTER check here,
@@ -320,29 +314,21 @@ INFO_TABLE(stg_AP,/*special layout*/0,0,AP,"AP","AP")
    * closure, in which case we must enter the blackhole on return rather
    * than continuing to evaluate the now-defunct closure.
    */
-  STK_CHK_ENTER(WDS(Words) +
+  STK_CHK_ENTER(n +
                 SIZEOF_StgUpdateFrame +
                 2/* see ARG_BCO below */, R1);
 
   PUSH_UPD_FRAME(Sp - SIZEOF_StgUpdateFrame, R1);
-  Sp = Sp - SIZEOF_StgUpdateFrame - WDS(Words);
+  Sp = Sp - SIZEOF_StgUpdateFrame - n;
 
   TICK_ENT_AP();
   LDV_ENTER(ap);
   ENTER_CCS_THUNK(ap);
 
   // Reload the stack
-  W_ i;
   W_ p;
   p = ap + SIZEOF_StgHeader + OFFSET_StgAP_payload;
-  i = 0;
-for:
-  if (i < Words) {
-    Sp(i) = W_[p];
-    p = p + WDS(1);
-    i = i + 1;
-    goto for;
-  }
+  prim %memcpy(Sp, p, n, SIZEOF_W);
 
   R1 = StgAP_fun(ap);
 
@@ -380,12 +366,13 @@ for:
 INFO_TABLE(stg_AP_NOUPD,/*special layout*/0,0,AP,"AP_NOUPD","AP_NOUPD")
    /* no args => explicit stack */
 {
-  W_ Words;
+  W_ Words, n;
   W_ ap;
 
   ap = R1;
 
   Words = TO_W_(StgAP_n_args(ap));
+  n = WDS(Words);
 
   /*
    * Check for stack overflow.  IMPORTANT: use a _ENTER check here,
@@ -393,26 +380,18 @@ INFO_TABLE(stg_AP_NOUPD,/*special layout*/0,0,AP,"AP_NOUPD","AP_NOUPD")
    * closure, in which case we must enter the blackhole on return rather
    * than continuing to evaluate the now-defunct closure.
    */
-  STK_CHK_ENTER(WDS(Words) +
+  STK_CHK_ENTER(n +
                 2/* see ARG_BCO below */, R1);
-  Sp = Sp - WDS(Words);
+  Sp = Sp - n;
 
   TICK_ENT_AP();
   LDV_ENTER(ap);
   ENTER_CCS_THUNK(ap);
 
   // Reload the stack
-  W_ i;
   W_ p;
   p = ap + SIZEOF_StgHeader + OFFSET_StgAP_payload;
-  i = 0;
-for:
-  if (i < Words) {
-    Sp(i) = W_[p];
-    p = p + WDS(1);
-    i = i + 1;
-    goto for;
-  }
+  prim %memcpy(Sp, p, n, SIZEOF_W);
 
   R1 = StgAP_fun(ap);
 
@@ -623,12 +602,13 @@ closures.
 INFO_TABLE(stg_AP_STACK,/*special layout*/0,0,AP_STACK,"AP_STACK","AP_STACK")
   /* no args => explicit stack */
 {
-  W_ Words;
+  W_ Words, n;
   W_ ap;
 
   ap = R1;
 
   Words = StgAP_STACK_size(ap);
+  n = WDS(Words);
 
   /*
    * Check for stack overflow.  IMPORTANT: use a _ENTER check here,
@@ -636,7 +616,7 @@ INFO_TABLE(stg_AP_STACK,/*special layout*/0,0,AP_STACK,"AP_STACK","AP_STACK")
    * closure, in which case we must enter the blackhole on return rather
    * than continuing to evaluate the now-defunct closure.
    */
-  STK_CHK_ENTER(WDS(Words) + SIZEOF_StgUpdateFrame + WDS(AP_STACK_SPLIM), R1);
+  STK_CHK_ENTER(n + SIZEOF_StgUpdateFrame + WDS(AP_STACK_SPLIM), R1);
 
   /*
    * It is imperative that we blackhole lest we may duplicate computation which
@@ -655,24 +635,16 @@ INFO_TABLE(stg_AP_STACK,/*special layout*/0,0,AP_STACK,"AP_STACK","AP_STACK")
   /* ensure there is at least AP_STACK_SPLIM words of headroom available
    * after unpacking the AP_STACK. See bug #1466 */
   PUSH_UPD_FRAME(Sp - SIZEOF_StgUpdateFrame, R1);
-  Sp = Sp - SIZEOF_StgUpdateFrame - WDS(Words);
+  Sp = Sp - SIZEOF_StgUpdateFrame - n;
 
   TICK_ENT_AP();
   LDV_ENTER(ap);
   ENTER_CCS_THUNK(ap);
 
   // Reload the stack
-  W_ i;
   W_ p;
   p = ap + SIZEOF_StgHeader + OFFSET_StgAP_STACK_payload;
-  i = 0;
-for:
-  if (i < Words) {
-    Sp(i) = W_[p];
-    p = p + WDS(1);
-    i = i + 1;
-    goto for;
-  }
+  prim %memcpy(Sp, p, n, SIZEOF_W)
 
   // Off we go!
   TICK_ENT_VIA_NODE();
@@ -690,12 +662,13 @@ INFO_TABLE(stg_AP_STACK_NOUPD,/*special layout*/0,0,AP_STACK,
                                         "AP_STACK_NOUPD","AP_STACK_NOUPD")
    /* no args => explicit stack */
 {
-  W_ Words;
+  W_ Words, n;
   W_ ap;
 
   ap = R1;
 
   Words = StgAP_STACK_size(ap);
+  n = WDS(Words);
 
   /*
    * Check for stack overflow.  IMPORTANT: use a _NP check here,
@@ -703,30 +676,21 @@ INFO_TABLE(stg_AP_STACK_NOUPD,/*special layout*/0,0,AP_STACK,
    * closure, in which case we must enter the blackhole on return rather
    * than continuing to evaluate the now-defunct closure.
    */
-  STK_CHK_ENTER(WDS(Words) + WDS(AP_STACK_SPLIM), R1);
+  STK_CHK_ENTER(n + WDS(AP_STACK_SPLIM), R1);
   /* ensure there is at least AP_STACK_SPLIM words of headroom available
    * after unpacking the AP_STACK. See bug #1466 */
 
-  Sp = Sp - WDS(Words);
+  Sp = Sp - n;
 
   TICK_ENT_AP();
   LDV_ENTER(ap);
   ENTER_CCS_THUNK(ap);
 
   // Reload the stack
-  W_ i;
   W_ p;
   p = ap + SIZEOF_StgHeader + OFFSET_StgAP_STACK_payload;
-  i = 0;
-for:
-  if (i < Words) {
-    Sp(i) = W_[p];
-    p = p + WDS(1);
-    i = i + 1;
-    goto for;
-  }
+  prim %memcpy(Sp, p, n, SIZEOF_W);
 
-  // Off we go!
   TICK_ENT_VIA_NODE();
 
   R1 = StgAP_STACK_fun(ap);
