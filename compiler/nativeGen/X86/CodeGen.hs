@@ -1954,19 +1954,26 @@ genCCall dflags is32Bit (PrimTarget (MO_Clz width)) dest_regs@[dst] args@[src]
     code_src <- getAnyReg src
     src_r <- getNewRegNat format
     tmp_r <- getNewRegNat format
+    sse4_2 <- sse4_2Enabled
     let dst_r = getRegisterReg platform False (CmmLocal dst)
+        instrs
+          | sse4_2
+          = [ LZCNT format (OpReg src_r) dst_r ]
 
-    -- The following insn sequence makes sure 'clz 0' has a defined value.
-    -- starting with Haswell, one could use the LZCNT insn instead.
+          | otherwise
+            -- The following insn sequence makes sure 'clz 0' has a defined value.
+          = [ BSR     format (OpReg src_r) tmp_r
+            , MOV     II32   (OpImm (ImmInt (2*bw-1))) (OpReg dst_r)
+            , CMOV NE format (OpReg tmp_r) dst_r
+            , XOR     format (OpImm (ImmInt (bw-1))) (OpReg dst_r)
+            ]
+            -- NB: We don't need to zero-extend the result for the
+            -- W8/W16 cases because the 'MOV' insn already
+            -- took care of implicitly clearing the upper bits
+
     return $ code_src src_r `appOL` toOL
              ([ MOVZxL  II8    (OpReg src_r) (OpReg src_r) | width == W8 ] ++
-              [ BSR     format (OpReg src_r) tmp_r
-              , MOV     II32   (OpImm (ImmInt (2*bw-1))) (OpReg dst_r)
-              , CMOV NE format (OpReg tmp_r) dst_r
-              , XOR     format (OpImm (ImmInt (bw-1))) (OpReg dst_r)
-              ]) -- NB: We don't need to zero-extend the result for the
-                 -- W8/W16 cases because the 'MOV' insn already
-                 -- took care of implicitly clearing the upper bits
+              instrs)
   where
     bw = widthInBits width
     platform = targetPlatform dflags
@@ -2012,16 +2019,23 @@ genCCall dflags is32Bit (PrimTarget (MO_Ctz width)) [dst] [src]
     tmp_r <- getNewRegNat format
     let dst_r = getRegisterReg platform False (CmmLocal dst)
 
-    -- The following insn sequence makes sure 'ctz 0' has a defined value.
-    -- starting with Haswell, one could use the TZCNT insn instead.
+        instrs
+          | isBmiEnabled dflags
+          = [ TZCNT format (OpReg src_r) dst_r ]
+
+          | otherwise
+            -- The following insn sequence makes sure 'ctz 0' has a defined value.
+          = [ BSF format (OpReg src_r) tmp_r
+            , MOV II32   (OpImm (ImmInt bw)) (OpReg dst_r)
+            , CMOV NE format (OpReg tmp_r) dst_r
+            ]
+            -- NB: We don't need to zero-extend the result for the
+            -- W8/W16 cases because the 'MOV' insn already
+            -- took care of implicitly clearing the upper bits
+
     return $ code_src src_r `appOL` toOL
-             ([ MOVZxL  II8    (OpReg src_r) (OpReg src_r) | width == W8 ] ++
-              [ BSF     format (OpReg src_r) tmp_r
-              , MOV     II32   (OpImm (ImmInt bw)) (OpReg dst_r)
-              , CMOV NE format (OpReg tmp_r) dst_r
-              ]) -- NB: We don't need to zero-extend the result for the
-                 -- W8/W16 cases because the 'MOV' insn already
-                 -- took care of implicitly clearing the upper bits
+             ([ MOVZxL II8 (OpReg src_r) (OpReg src_r) | width == W8 ] ++
+              instrs)
   where
     bw = widthInBits width
     platform = targetPlatform dflags

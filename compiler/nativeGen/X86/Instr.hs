@@ -344,6 +344,8 @@ data Instr
         | POPCNT      Format Operand Reg -- [SSE4.2] count number of bits set to 1
         | BSF         Format Operand Reg -- bit scan forward
         | BSR         Format Operand Reg -- bit scan reverse
+        | LZCNT       Format Operand Reg -- [ABM] count number of leading zero bits
+        | TZCNT       Format Operand Reg -- [BMI1] count number of trailing zero bits
 
     -- bit manipulation instructions
         | PDEP        Format Operand Operand Reg -- [BMI2] deposit bits to   the specified mask
@@ -467,6 +469,8 @@ x86_regUsageOfInstr platform instr
     POPCNT _ src dst -> mkRU (use_R src []) [dst]
     BSF    _ src dst -> mkRU (use_R src []) [dst]
     BSR    _ src dst -> mkRU (use_R src []) [dst]
+    LZCNT  _ src dst -> mkRU (use_R src []) [dst]
+    TZCNT  _ src dst -> mkRU (use_R src []) [dst]
 
     PDEP   _ src mask dst -> mkRU (use_R src $ use_R mask []) [dst]
     PEXT   _ src mask dst -> mkRU (use_R src $ use_R mask []) [dst]
@@ -649,8 +653,11 @@ x86_patchRegsOfInstr instr env
     POPCNT fmt src dst -> POPCNT fmt (patchOp src) (env dst)
     PDEP   fmt src mask dst -> PDEP   fmt (patchOp src) (patchOp mask) (env dst)
     PEXT   fmt src mask dst -> PEXT   fmt (patchOp src) (patchOp mask) (env dst)
+
     BSF    fmt src dst -> BSF    fmt (patchOp src) (env dst)
     BSR    fmt src dst -> BSR    fmt (patchOp src) (env dst)
+    LZCNT  fmt src dst -> LZCNT  fmt (patchOp src) (env dst)
+    TZCNT  fmt src dst -> TZCNT  fmt (patchOp src) (env dst)
 
     PREFETCH lvl format src -> PREFETCH lvl format (patchOp src)
 
