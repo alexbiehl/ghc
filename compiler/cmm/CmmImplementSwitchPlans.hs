@@ -7,6 +7,7 @@ where
 import GhcPrelude
 
 import Hoopl.Block
+import Hoopl.Label (Label)
 import BlockId
 import Cmm
 import CmmUtils
@@ -54,7 +55,7 @@ visitSwitches dflags block
 
 
 -- Implementing a switch plan (returning a tail block)
-implementSwitchPlan :: DynFlags -> CmmTickScope -> CmmExpr -> SwitchPlan -> UniqSM (Block CmmNode O C, [CmmBlock])
+implementSwitchPlan :: DynFlags -> CmmTickScope -> CmmExpr -> SwitchPlan Label -> UniqSM (Block CmmNode O C, [CmmBlock])
 implementSwitchPlan dflags scope expr = go
   where
     go (Unconditionally l)

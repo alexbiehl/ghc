@@ -101,8 +101,8 @@ data CmmNode e x where
   } -> CmmNode O C
 
   CmmSwitch
-    :: CmmExpr       -- Scrutinee, of some integral type
-    -> SwitchTargets -- Cases. See [Note SwitchTargets]
+    :: CmmExpr             -- Scrutinee, of some integral type
+    -> SwitchTargets Label -- Cases. See [Note SwitchTargets]
     -> CmmNode O C
 
   CmmCall :: {                -- A native call or tail call

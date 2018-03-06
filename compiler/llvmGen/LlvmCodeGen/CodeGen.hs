@@ -23,6 +23,7 @@ import CmmSwitch
 import Hoopl.Block
 import Hoopl.Graph
 import Hoopl.Collections
+import Hoopl.Label (Label)
 
 import DynFlags
 import FastString
@@ -1074,7 +1075,7 @@ For a real example of this, see ./rts/StgStdThunks.cmm
 
 
 -- | Switch branch
-genSwitch :: CmmExpr -> SwitchTargets -> LlvmM StmtData
+genSwitch :: CmmExpr -> SwitchTargets Label -> LlvmM StmtData
 genSwitch cond ids = do
     (vc, stmts, top) <- exprToVar cond
     let ty = getVarType vc

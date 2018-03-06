@@ -57,6 +57,7 @@ import CmmSwitch
 import Cmm
 import Hoopl.Block
 import Hoopl.Graph
+import Hoopl.Label      ( Label )
 import CLabel
 import CoreSyn          ( Tickish(..) )
 import SrcLoc           ( srcSpanFile, srcSpanStartLine, srcSpanStartCol )
@@ -2785,7 +2786,7 @@ outOfLineCmmOp mop res args
 -- -----------------------------------------------------------------------------
 -- Generating a table-branch
 
-genSwitch :: DynFlags -> CmmExpr -> SwitchTargets -> NatM InstrBlock
+genSwitch :: DynFlags -> CmmExpr -> SwitchTargets Label -> NatM InstrBlock
 
 genSwitch dflags expr targets
   | positionIndependent dflags

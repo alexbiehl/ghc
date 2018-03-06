@@ -50,6 +50,7 @@ import CmmSwitch
 import CLabel
 import Hoopl.Block
 import Hoopl.Graph
+import Hoopl.Label (Label)
 
 -- The rest:
 import OrdList
@@ -2030,7 +2031,7 @@ genCCall' dflags gcp target dest_regs args
 -- -----------------------------------------------------------------------------
 -- Generating a table-branch
 
-genSwitch :: DynFlags -> CmmExpr -> SwitchTargets -> NatM InstrBlock
+genSwitch :: DynFlags -> CmmExpr -> SwitchTargets Label -> NatM InstrBlock
 genSwitch dflags expr targets
   | OSAIX <- platformOS (targetPlatform dflags)
   = do

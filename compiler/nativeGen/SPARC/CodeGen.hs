@@ -48,6 +48,7 @@ import CmmUtils
 import CmmSwitch
 import Hoopl.Block
 import Hoopl.Graph
+import Hoopl.Label (Label)
 import PIC
 import Reg
 import CLabel
@@ -312,7 +313,7 @@ genCondJump bid bool = do
 -- -----------------------------------------------------------------------------
 -- Generating a table-branch
 
-genSwitch :: DynFlags -> CmmExpr -> SwitchTargets -> NatM InstrBlock
+genSwitch :: DynFlags -> CmmExpr -> SwitchTargets Label -> NatM InstrBlock
 genSwitch dflags expr targets
         | positionIndependent dflags
         = error "MachCodeGen: sparc genSwitch PIC not finished\n"
