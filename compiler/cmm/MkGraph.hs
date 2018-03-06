@@ -228,7 +228,7 @@ mkCbranch       :: CmmExpr -> BlockId -> BlockId -> Maybe Bool -> CmmAGraph
 mkCbranch pred ifso ifnot likely =
   mkLast (CmmCondBranch pred ifso ifnot likely)
 
-mkSwitch        :: CmmExpr -> SwitchTargets -> CmmAGraph
+mkSwitch        :: CmmExpr -> SwitchTargets Label -> CmmAGraph
 mkSwitch e tbl   = mkLast $ CmmSwitch e tbl
 
 mkReturn        :: DynFlags -> CmmExpr -> [CmmExpr] -> UpdFrameOffset

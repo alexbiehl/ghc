@@ -36,6 +36,7 @@ import PprCmm ()
 import Hoopl.Block
 import Hoopl.Collections
 import Hoopl.Graph
+import Hoopl.Label (Label)
 import CmmUtils
 import CmmSwitch
 
@@ -333,7 +334,7 @@ pprCondBranch expr yes no
 --
 -- we find the fall-through cases
 --
-pprSwitch :: DynFlags -> CmmExpr -> SwitchTargets -> SDoc
+pprSwitch :: DynFlags -> CmmExpr -> SwitchTargets Label -> SDoc
 pprSwitch dflags e ids
   = (hang (text "switch" <+> parens ( pprExpr e ) <+> lbrace)
                 4 (vcat ( map caseify pairs ) $$ def)) $$ rbrace
