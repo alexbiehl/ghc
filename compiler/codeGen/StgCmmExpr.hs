@@ -39,6 +39,7 @@ import CoreSyn
 import DataCon
 import ForeignCall
 import Id
+import Literal          ( Literal )
 import PrimOp
 import TyCon
 import Type             ( isUnliftedType )
@@ -81,7 +82,7 @@ cgExpr (StgLetNoEscape binds expr) =
      ; return r }
 
 cgExpr (StgCase expr bndr alt_type alts) =
-  cgCase expr bndr alt_type alts
+  cgCase cgCodeAlts expr bndr alt_type alts
 
 cgExpr (StgLam {}) = panic "cgExpr: StgLam"
 
@@ -287,10 +288,38 @@ data GcPlan
                         -- primitive op which does no GC.  Absorb the allocation
                         -- of the case alternative(s) into the upstream check
 
--------------------------------------
-cgCase :: StgExpr -> Id -> AltType -> [StgAlt] -> FCode ReturnKind
+data CgAlts a = CgAlts {
 
-cgCase (StgOpApp (StgPrimOp op) args _) bndr (AlgAlt tycon) alts
+    cgAltsRhss      :: (GcPlan,ReturnKind)
+                    -> NonVoid Id
+                    -> [StgAlt]
+                    -> FCode [(AltCon, a)]
+
+  , cgAltsAlgSwitch :: CmmExpr
+                    -> [(ConTagZ, a)]
+                    -> Maybe a
+                    -> Int
+                    -> Int
+                    -> FCode ()
+
+  , cgAltsLitSwitch :: CmmExpr
+                    -> [(Literal, a)]
+                    -> a
+                    -> FCode ()
+  }
+
+cgCodeAlts :: CgAlts CmmAGraphScoped
+cgCodeAlts =
+  CgAlts {
+      cgAltsRhss      = cgAltRhss
+    , cgAltsAlgSwitch = emitSwitch
+    , cgAltsLitSwitch = emitCmmLitSwitch
+    }
+
+-------------------------------------
+cgCase :: CgAlts a -> StgExpr -> Id -> AltType -> [StgAlt] -> FCode ReturnKind
+
+cgCase cg_alts (StgOpApp (StgPrimOp op) args _) bndr (AlgAlt tycon) alts
   | isEnumerationTyCon tycon -- Note [case on bool]
   = do { tag_expr <- do_enum_primop op args
 
@@ -302,10 +331,13 @@ cgCase (StgOpApp (StgPrimOp op) args _) bndr (AlgAlt tycon) alts
             ; emitAssign (CmmLocal tmp_reg)
                          (tagToClosure dflags tycon tag_expr) }
 
-       ; (mb_deflt, branches) <- cgAlgAltRhss (NoGcInAlts,AssignedDirectly)
-                                              (NonVoid bndr) alts
+       ; (mb_deflt, branches) <- cgAlgAltRhss cg_alts
+                                 (NoGcInAlts,AssignedDirectly)
+                                 (NonVoid bndr) alts
                                  -- See Note [GC for conditionals]
-       ; emitSwitch tag_expr branches mb_deflt 0 (tyConFamilySize tycon - 1)
+       ; cgAltsAlgSwitch cg_alts
+                         tag_expr branches mb_deflt 0
+                         (tyConFamilySize tycon - 1)
        ; return AssignedDirectly
        }
   where
@@ -377,7 +409,7 @@ calls to nonVoidIds in various places.  So we must not look up
 's' in the environment.  Instead, just evaluate the RHS!  Simple.
 -}
 
-cgCase (StgApp v []) _ (PrimAlt _) alts
+cgCase _ (StgApp v []) _ (PrimAlt _) alts
   | isVoidRep (idPrimRep v)  -- See Note [Scrutinising VoidRep]
   , [(DEFAULT, _, rhs)] <- alts
   = cgExpr rhs
@@ -398,7 +430,7 @@ then we'll get a runtime panic, because the HValue really is a
 MutVar#.  The types are compatible though, so we can just generate an
 assignment.
 -}
-cgCase (StgApp v []) bndr alt_type@(PrimAlt _) alts
+cgCase cg_alts (StgApp v []) bndr alt_type@(PrimAlt _) alts
   | isUnliftedType (idType v)  -- Note [Dodgy unsafeCoerce 1]
   || reps_compatible
   = -- assignment suffices for unlifted types
@@ -410,7 +442,7 @@ cgCase (StgApp v []) bndr alt_type@(PrimAlt _) alts
        ; emitAssign (CmmLocal (idToReg dflags (NonVoid bndr)))
                     (idInfoToAmode v_info)
        ; bindArgToReg (NonVoid bndr)
-       ; cgAlts (NoGcInAlts,AssignedDirectly) (NonVoid bndr) alt_type alts }
+       ; cgAlts cg_alts (NoGcInAlts,AssignedDirectly) (NonVoid bndr) alt_type alts }
   where
     reps_compatible = ((==) `on` (primRepSlot . idPrimRep)) v bndr
       -- Must compare SlotTys, not proper PrimReps, because with unboxed sums,
@@ -432,7 +464,7 @@ because bottom must be untagged, it will be entered.  The Sequel is a
 type-correct assignment, albeit bogus.  The (dead) continuation loops;
 it would be better to invoke some kind of panic function here.
 -}
-cgCase scrut@(StgApp v []) _ (PrimAlt _) _
+cgCase _ scrut@(StgApp v []) _ (PrimAlt _) _
   = do { dflags <- getDynFlags
        ; mb_cc <- maybeSaveCostCentre True
        ; withSequel (AssignTo [idToReg dflags (NonVoid v)] False) (cgExpr scrut)
@@ -458,12 +490,12 @@ case a of v
 is the same as the return convention for just 'a')
 -}
 
-cgCase (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _) bndr alt_type alts
+cgCase cg_alts (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _) bndr alt_type alts
   = -- Note [Handle seq#]
     -- Use the same return convention as vanilla 'a'.
-    cgCase (StgApp a []) bndr alt_type alts
+    cgCase cg_alts (StgApp a []) bndr alt_type alts
 
-cgCase scrut bndr alt_type alts
+cgCase cg_alts scrut bndr alt_type alts
   = -- the general case
     do { dflags <- getDynFlags
        ; up_hp_usg <- getVirtHp        -- Upstream heap usage
@@ -484,7 +516,7 @@ cgCase scrut bndr alt_type alts
        ; ret_kind <- withSequel sequel (cgExpr scrut)
        ; restoreCurrentCostCentre mb_cc
        ; _ <- bindArgsToRegs ret_bndrs
-       ; cgAlts (gc_plan,ret_kind) (NonVoid bndr) alt_type alts
+       ; cgAlts cg_alts (gc_plan,ret_kind) (NonVoid bndr) alt_type alts
        }
   where
     is_cmp_op (StgOpApp (StgPrimOp op) _ _) = isComparisonPrimOp op
@@ -575,35 +607,34 @@ chooseReturnBndrs _ _ _ = panic "chooseReturnBndrs"
                              -- MultiValAlt has only one alternative
 
 -------------------------------------
-cgAlts :: (GcPlan,ReturnKind) -> NonVoid Id -> AltType -> [StgAlt]
+cgAlts :: CgAlts a -> (GcPlan,ReturnKind) -> NonVoid Id -> AltType -> [StgAlt]
        -> FCode ReturnKind
 -- At this point the result of the case are in the binders
-cgAlts gc_plan _bndr PolyAlt [(_, _, rhs)]
+cgAlts _ gc_plan _bndr PolyAlt [(_, _, rhs)]
   = maybeAltHeapCheck gc_plan (cgExpr rhs)
 
-cgAlts gc_plan _bndr (MultiValAlt _) [(_, _, rhs)]
+cgAlts _ gc_plan _bndr (MultiValAlt _) [(_, _, rhs)]
   = maybeAltHeapCheck gc_plan (cgExpr rhs)
         -- Here bndrs are *already* in scope, so don't rebind them
 
-cgAlts gc_plan bndr (PrimAlt _) alts
+cgAlts cg_alts gc_plan bndr (PrimAlt _) alts
   = do  { dflags <- getDynFlags
 
-        ; tagged_cmms <- cgAltRhss gc_plan bndr alts
+        ; tagged_cmms <- cgAltsRhss cg_alts gc_plan bndr alts
 
         ; let bndr_reg = CmmLocal (idToReg dflags bndr)
               (DEFAULT,deflt) = head tagged_cmms
                 -- PrimAlts always have a DEFAULT case
                 -- and it always comes first
-
               tagged_cmms' = [(lit,code)
                              | (LitAlt lit, code) <- tagged_cmms]
-        ; emitCmmLitSwitch (CmmReg bndr_reg) tagged_cmms' deflt
+        ; cgAltsLitSwitch cg_alts (CmmReg bndr_reg) tagged_cmms' deflt
         ; return AssignedDirectly }
 
-cgAlts gc_plan bndr (AlgAlt tycon) alts
+cgAlts cg_alts gc_plan bndr (AlgAlt tycon) alts
   = do  { dflags <- getDynFlags
 
-        ; (mb_deflt, branches) <- cgAlgAltRhss gc_plan bndr alts
+        ; (mb_deflt, branches) <- cgAlgAltRhss cg_alts gc_plan bndr alts
 
         ; let fam_sz   = tyConFamilySize tycon
               bndr_reg = CmmLocal (idToReg dflags bndr)
@@ -614,18 +645,18 @@ cgAlts gc_plan bndr (AlgAlt tycon) alts
                 let   -- Yes, bndr_reg has constr. tag in ls bits
                    tag_expr = cmmConstrTag1 dflags (CmmReg bndr_reg)
                    branches' = [(tag+1,branch) | (tag,branch) <- branches]
-                emitSwitch tag_expr branches' mb_deflt 1 fam_sz
+                cgAltsAlgSwitch cg_alts tag_expr branches' mb_deflt 1 fam_sz
 
            else -- No, get tag from info table
                 let -- Note that ptr _always_ has tag 1
                     -- when the family size is big enough
                     untagged_ptr = cmmRegOffB bndr_reg (-1)
                     tag_expr = getConstrTag dflags (untagged_ptr)
-                in emitSwitch tag_expr branches mb_deflt 0 (fam_sz - 1)
+                in cgAltsAlgSwitch cg_alts tag_expr branches mb_deflt 0 (fam_sz - 1)
 
         ; return AssignedDirectly }
 
-cgAlts _ _ _ _ = panic "cgAlts"
+cgAlts _ _ _ _ _ = panic "cgAlts"
         -- UbxTupAlt and PolyAlt have only one alternative
 
 
@@ -650,11 +681,10 @@ cgAlts _ _ _ _ = panic "cgAlts"
 --   goto L1
 
 -------------------
-cgAlgAltRhss :: (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
-             -> FCode ( Maybe CmmAGraphScoped
-                      , [(ConTagZ, CmmAGraphScoped)] )
-cgAlgAltRhss gc_plan bndr alts
-  = do { tagged_cmms <- cgAltRhss gc_plan bndr alts
+cgAlgAltRhss :: CgAlts a -> (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
+             -> FCode ( Maybe a, [(ConTagZ, a)] )
+cgAlgAltRhss cg_alts gc_plan bndr alts
+  = do { tagged_cmms <- cgAltsRhss cg_alts gc_plan bndr alts
 
        ; let { mb_deflt = case tagged_cmms of
                            ((DEFAULT,rhs) : _) -> Just rhs
