@@ -210,7 +210,7 @@ cmmExprType dflags (CmmLit lit)        = cmmLitType dflags lit
 cmmExprType _      (CmmLoad _ rep)     = rep
 cmmExprType dflags (CmmReg reg)        = cmmRegType dflags reg
 cmmExprType dflags (CmmMachOp op args) = machOpResultType dflags op (map (cmmExprType dflags) args)
-cmmExprType dflags (CmmCondLit e _)    = cmmExprType dflags e
+cmmExprType dflags (CmmCondLit _ lits) = cmmLitType dflags (head (switchTargetsToList lits))
 cmmExprType dflags (CmmRegOff reg _)   = cmmRegType dflags reg
 cmmExprType dflags (CmmStackSlot _ _)  = bWord dflags -- an address
 -- Careful though: what is stored at the stack slot may be bigger than

@@ -160,7 +160,7 @@ switchTargetsSigned (SwitchTargets signed _ _ _) = signed
 -- The conversion from Integer to Int is a bit of a wart, as the actual
 -- scrutinee might be an unsigned word, but it just works, due to wrap-around
 -- arithmetic (as verified by the CmmSwitchTest test case).
-switchTargetsToTable :: SwitchTargets leaf -> (Int, [Maybe leaf])
+switchTargetsToTable :: SwitchTargets leaf -> (Int, [Maybe leaf]) --
 switchTargetsToTable (SwitchTargets _ (lo,hi) mbdef leafs)
     = (fromIntegral (-start), [ labelFor i | i <- [start..hi] ])
   where

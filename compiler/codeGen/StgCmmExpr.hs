@@ -35,7 +35,6 @@ import MkGraph
 import BlockId
 import Cmm
 import CmmInfo
-import CmmSwitch
 import CoreSyn
 import DataCon
 import DynFlags
@@ -55,7 +54,6 @@ import Outputable
 import Control.Monad (unless,void)
 import Control.Arrow (first)
 import Data.Function ( on )
-import qualified Data.Map as Map
 
 ------------------------------------------------------------------------
 --              cgExpr: the main function
@@ -84,11 +82,12 @@ cgExpr (StgLetNoEscape binds expr) =
      ; emitLabel join_id
      ; return r }
 
-cgExpr (StgCase expr bndr alt_type alts) = do
-  dflags <- getDynFlags
-  case sequence $ map (literalAlt_maybe dflags ) alts of
-    Just _all_lits -> cgCase cgLitAlts expr bndr alt_type alts
-    Nothing        -> cgCase cgCodeAlts expr bndr alt_type alts
+cgExpr (StgCase expr bndr alt_type alts) =
+  do { dflags <- getDynFlags
+     ; case literalAlts_maybe dflags alts of
+         Just _  -> cgCase cgLitAlts  expr bndr alt_type alts
+         Nothing -> cgCase cgCodeAlts expr bndr alt_type alts
+     }
 
 cgExpr (StgLam {}) = panic "cgExpr: StgLam"
 
@@ -344,15 +343,9 @@ cgLitAlts =
                             Nothing   -> error "fuck"
 
     , cgAltsAlgSwitch = \scrut alts deflt lo hi -> do
-                          dflags <- getDynFlags
-                          let switch = mkSwitchTargets False
-                                         (fromIntegral lo, fromIntegral hi)
-                                         deflt
-                                         (Map.fromList [(fromIntegral k, v) | (k,v) <- alts])
-
-                          tmp <- newTemp (cmmLitType dflags (snd (head alts)))
-                          emit $ mkAssign (CmmLocal tmp) (CmmCondLit scrut switch)
-                          _ <- emitReturn (pure (CmmReg (CmmLocal tmp)))
+                          lut    <- mkLUT scrut alts deflt lo hi
+                          result <- assignTemp lut
+                          _      <- emitReturn [CmmReg (CmmLocal result)]
                           return ()
 
     , cgAltsLitSwitch = undefined
@@ -363,6 +356,9 @@ literalAlt_maybe dflags (_, _, expr) =
   case expr of
     StgLit lit -> Just (mkSimpleLit dflags lit)
     _          -> Nothing
+
+literalAlts_maybe :: DynFlags -> [StgAlt] -> Maybe [CmmLit]
+literalAlts_maybe dflags = sequence . map (literalAlt_maybe dflags)
 
 -------------------------------------
 cgCase :: CgAlts a -> StgExpr -> Id -> AltType -> [StgAlt] -> FCode ReturnKind

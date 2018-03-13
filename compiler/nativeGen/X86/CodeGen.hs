@@ -993,22 +993,31 @@ getRegister' dflags _ (CmmLit lit)
            code dst = unitOL (MOV format (OpImm imm) (OpReg dst))
        return (Any format code)
 
-getRegister' dflags _ (CmmCondLits expr lits)
+getRegister' dflags _ (CmmCondLit expr lits)
   = do (reg,e_code) <- getNonClobberedReg (cmmOffset dflags expr offset)
        -- getNonClobberedReg because it needs to survive across t_code
 
-       case switchTargetsToList lits of
-         [ lit1, lit2 ]
+       (format, code) <- case switchTargetsFallThrough lits of
+         ([([lbl1], lit1), ([lbl2], lit2)], Nothing) -> do
 
+           let
+             format = cmmTypeFormat (cmmLitType dflags lit1)
+             imm = litToImm lit1
+             code dst =
+                       e_code
+               `appOL` unitOL (MOV format (OpImm imm) (OpReg dst))
+               `appOL` unitOL (CMP (cmmTypeFormat (cmmExprType dflags expr)) (OpReg reg) (OpImm (ImmInteger lbl2)))
+               `appOL` unitOL (CMOV EQQ format (OpImm (litToImm lit2)) dst)
+           return (format, code)
 
+         _ -> undefined
 
-
+       return (Any format code)
          where (offset, ids) = switchTargetsToTable lits
 
 getRegister' _ _ other
     | isVecExpr other  = needLlvm
     | otherwise        = pprPanic "getRegister(x86)" (ppr other)
-
 
 intLoadCode :: (Operand -> Operand -> Instr) -> CmmExpr
    -> NatM (Reg -> InstrBlock)

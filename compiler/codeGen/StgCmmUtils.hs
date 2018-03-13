@@ -19,6 +19,8 @@ module StgCmmUtils (
 
         emitMultiAssign, emitCmmLitSwitch, emitSwitch,
 
+        mkLUT,
+
         tagToClosure, mkTaggedObjectLoad,
 
         callerSaves, callerSaveVolatileRegs, get_GlobalReg_addr,
@@ -443,6 +445,34 @@ unscramble dflags vertices = mapM_ do_component components
         (reg, _) `mustFollow` (_, rhs) = regUsedIn dflags (CmmLocal reg) rhs
 
 -------------------------------------------------------------------------
+--      mkLUT
+-------------------------------------------------------------------------
+
+mkLUT :: CmmExpr                      -- Tag to switch on
+      -> [(ConTagZ, CmmLit)]          -- Tagged branches
+      -> Maybe CmmLit                 -- Default branch (if any)
+      -> ConTagZ -> ConTagZ           -- Min and Max possible values;
+                                           -- behaviour outside this range is
+                                           -- undefined
+      -> FCode CmmExpr
+
+-- First, two rather common cases in which there is no work to do
+mkLUT _ []         (Just deflt) _ _ = return (CmmLit deflt)
+mkLUT _ [(_, lit)] Nothing      _ _ = return (CmmLit lit)
+
+-- Right, off we go
+mkLUT tag_expr literals mb_deflt lo_tag hi_tag = do
+  tag_expr' <- assignTemp' tag_expr
+  let
+    literals' =
+      [ (fromIntegral i, lit) | (i, lit) <- sortBy (comparing fst) literals ]
+    range =
+      (fromIntegral lo_tag, fromIntegral hi_tag)
+    lut =
+      mk_discrete_switch_lit False tag_expr' literals' mb_deflt range
+  return lut
+
+-------------------------------------------------------------------------
 --      mkSwitch
 -------------------------------------------------------------------------
 
@@ -472,6 +502,14 @@ emitSwitch tag_expr branches mb_deflt lo_tag hi_tag = do
     emit $ mk_discrete_switch_jump False tag_expr' branches_lbls' mb_deflt_lbl range
 
     emitLabel join_lbl
+
+mk_discrete_switch_lit :: Bool -- ^ Use signed comparisons
+                       -> CmmExpr
+                       -> [(Integer, CmmLit)]
+                       -> Maybe CmmLit
+                       -> (Integer, Integer)
+                       -> CmmExpr
+mk_discrete_switch_lit = mk_discrete_switch CmmLit CmmCondLit
 
 mk_discrete_switch_jump :: Bool -- ^ Use signed comparisons
                         -> CmmExpr
