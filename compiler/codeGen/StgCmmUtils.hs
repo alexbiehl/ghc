@@ -470,26 +470,37 @@ emitSwitch tag_expr branches mb_deflt lo_tag hi_tag = do
     let branches_lbls' = [ (fromIntegral i, l) | (i,l) <- sortBy (comparing fst) branches_lbls ]
     let range = (fromIntegral lo_tag, fromIntegral hi_tag)
 
-    emit $ mk_discrete_switch False tag_expr' branches_lbls' mb_deflt_lbl range
+    emit $ mk_discrete_switch_jump False tag_expr' branches_lbls' mb_deflt_lbl range
 
     emitLabel join_lbl
 
-mk_discrete_switch :: Bool -- ^ Use signed comparisons
-          -> CmmExpr
-          -> [(Integer, BlockId)]
-          -> Maybe BlockId
-          -> (Integer, Integer)
-          -> CmmAGraph
+mk_discrete_switch_jump :: Bool -- ^ Use signed comparisons
+                        -> CmmExpr
+                        -> [(Integer, BlockId)]
+                        -> Maybe BlockId
+                        -> (Integer, Integer)
+                        -> CmmAGraph
+mk_discrete_switch_jump = mk_discrete_switch mkBranch mkSwitch
+
+mk_discrete_switch :: Eq a
+                   => (a -> b)
+                   -> (CmmExpr -> SwitchTargets a -> b)
+                   -> Bool -- ^ Use signed comparisons
+                   -> CmmExpr
+                   -> [(Integer, a)]
+                   -> Maybe a
+                   -> (Integer, Integer)
+                   -> b
 
 -- SINGLETON TAG RANGE: no case analysis to do
-mk_discrete_switch _ _tag_expr [(tag, lbl)] _ (lo_tag, hi_tag)
+mk_discrete_switch return_ _ _ _tag_expr [(tag, lbl)] _ (lo_tag, hi_tag)
   | lo_tag == hi_tag
   = ASSERT( tag == lo_tag )
-    mkBranch lbl
+    return_ lbl
 
 -- SINGLETON BRANCH, NO DEFAULT: no case analysis to do
-mk_discrete_switch _ _tag_expr [(_tag,lbl)] Nothing _
-  = mkBranch lbl
+mk_discrete_switch return_ _ _ _tag_expr [(_tag,lbl)] Nothing _
+  = return_ lbl
         -- The simplifier might have eliminated a case
         --       so we may have e.g. case xs of
         --                               [] -> e
@@ -498,8 +509,8 @@ mk_discrete_switch _ _tag_expr [(_tag,lbl)] Nothing _
 
 -- SOMETHING MORE COMPLICATED: defer to CmmImplementSwitchPlans
 -- See Note [Cmm Switches, the general plan] in CmmSwitch
-mk_discrete_switch signed tag_expr branches mb_deflt range
-  = mkSwitch tag_expr $ mkSwitchTargets signed range mb_deflt (M.fromList branches)
+mk_discrete_switch _ return_ signed tag_expr branches mb_deflt range
+  = return_ tag_expr $ mkSwitchTargets signed range mb_deflt (M.fromList branches)
 
 divideBranches :: Ord a => [(a,b)] -> ([(a,b)], a, [(a,b)])
 divideBranches branches = (lo_branches, mid, hi_branches)
@@ -538,7 +549,7 @@ emitCmmLitSwitch scrut  branches deflt = do
 
     if isFloatType cmm_ty
     then emit =<< mk_float_switch rep scrut' deflt_lbl noBound branches_lbls
-    else emit $ mk_discrete_switch
+    else emit $ mk_discrete_switch_jump
         signed
         scrut'
         [(litValue lit,l) | (lit,l) <- branches_lbls]
