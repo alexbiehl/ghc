@@ -294,13 +294,20 @@ data GcPlan
                         -- primitive op which does no GC.  Absorb the allocation
                         -- of the case alternative(s) into the upstream check
 
+
+-- | Generating code for cases is tricky. It gets even trickier when we try
+-- to generalize the kind of switch a case generates. `CgAlts` helps us to
+-- generate code for jump and lookup tables for complex cases.
 data CgAlts a = CgAlts {
 
+    -- | Generate code for the alternatives
     cgAltsRhss     :: (GcPlan,ReturnKind)
                    -> NonVoid Id
                    -> [StgAlt]
                    -> FCode [(AltCon, a)]
 
+    -- | Emit the CmmSwitch statement for an algebraic
+    -- case
   , cgAltsAlgSwitch   :: CmmExpr
                       -> [(ConTagZ, a)]
                       -> Maybe a
@@ -308,6 +315,7 @@ data CgAlts a = CgAlts {
                       -> Int
                       -> FCode ()
 
+    -- | Emit a CmmSwitch for a primitive case
   , cgAltsLitSwitch   :: CmmExpr
                       -> [(Literal, a)]
                       -> a
