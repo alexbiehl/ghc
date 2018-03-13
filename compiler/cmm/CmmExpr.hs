@@ -36,6 +36,7 @@ import GhcPrelude
 import BlockId
 import CLabel
 import CmmMachOp
+import CmmSwitch
 import CmmType
 import DynFlags
 import Outputable (panic)
@@ -55,6 +56,7 @@ data CmmExpr
   | CmmLoad !CmmExpr !CmmType   -- Read memory location
   | CmmReg !CmmReg              -- Contents of register
   | CmmMachOp MachOp [CmmExpr]  -- Machine operation (+, -, *, etc.)
+  | CmmCondLit !CmmExpr (SwitchTargets CmmLit)
   | CmmStackSlot Area {-# UNPACK #-} !Int
                                 -- addressing expression of a stack slot
                                 -- See Note [CmmStackSlot aliasing]
@@ -70,6 +72,7 @@ instance Eq CmmExpr where       -- Equality ignores the types
   CmmReg r1          == CmmReg r2          = r1==r2
   CmmRegOff r1 i1    == CmmRegOff r2 i2    = r1==r2 && i1==i2
   CmmMachOp op1 es1  == CmmMachOp op2 es2  = op1==op2 && es1==es2
+  CmmCondLit e1 s1   == CmmCondLit e2 s2   = e1 == e2 && s1 == s2
   CmmStackSlot a1 i1 == CmmStackSlot a2 i2 = a1==a2 && i1==i2
   _e1                == _e2                = False
 
@@ -207,6 +210,7 @@ cmmExprType dflags (CmmLit lit)        = cmmLitType dflags lit
 cmmExprType _      (CmmLoad _ rep)     = rep
 cmmExprType dflags (CmmReg reg)        = cmmRegType dflags reg
 cmmExprType dflags (CmmMachOp op args) = machOpResultType dflags op (map (cmmExprType dflags) args)
+cmmExprType dflags (CmmCondLit e _)    = cmmExprType dflags e
 cmmExprType dflags (CmmRegOff reg _)   = cmmRegType dflags reg
 cmmExprType dflags (CmmStackSlot _ _)  = bWord dflags -- an address
 -- Careful though: what is stored at the stack slot may be bigger than
@@ -353,6 +357,7 @@ instance (Ord r, UserOfRegs r CmmReg) => UserOfRegs r CmmExpr where
           expr z (CmmLoad addr _)    = foldRegsUsed dflags f z addr
           expr z (CmmReg r)          = foldRegsUsed dflags f z r
           expr z (CmmMachOp _ exprs) = foldRegsUsed dflags f z exprs
+          expr z (CmmCondLit e _)    = foldRegsUsed dflags f z e
           expr z (CmmRegOff r _)     = foldRegsUsed dflags f z r
           expr z (CmmStackSlot _ _)  = z
 

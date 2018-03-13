@@ -35,8 +35,10 @@ import MkGraph
 import BlockId
 import Cmm
 import CmmInfo
+import CmmSwitch
 import CoreSyn
 import DataCon
+import DynFlags
 import ForeignCall
 import Id
 import Literal          ( Literal )
@@ -53,6 +55,7 @@ import Outputable
 import Control.Monad (unless,void)
 import Control.Arrow (first)
 import Data.Function ( on )
+import qualified Data.Map as Map
 
 ------------------------------------------------------------------------
 --              cgExpr: the main function
@@ -81,8 +84,11 @@ cgExpr (StgLetNoEscape binds expr) =
      ; emitLabel join_id
      ; return r }
 
-cgExpr (StgCase expr bndr alt_type alts) =
-  cgCase cgCodeAlts expr bndr alt_type alts
+cgExpr (StgCase expr bndr alt_type alts) = do
+  dflags <- getDynFlags
+  case sequence $ map (literalAlt_maybe dflags ) alts of
+    Just _all_lits -> cgCase cgLitAlts expr bndr alt_type alts
+    Nothing        -> cgCase cgCodeAlts expr bndr alt_type alts
 
 cgExpr (StgLam {}) = panic "cgExpr: StgLam"
 
@@ -290,12 +296,7 @@ data GcPlan
 
 data CgAlts a = CgAlts {
 
-    cgAltsAlgsRhss :: (GcPlan, ReturnKind)
-                   -> NonVoid Id
-                   -> [StgAlt]
-                   -> FCode (Maybe a, [(ConTagZ, a)])
-
-  , cgAltsRhss     :: (GcPlan,ReturnKind)
+    cgAltsRhss     :: (GcPlan,ReturnKind)
                    -> NonVoid Id
                    -> [StgAlt]
                    -> FCode [(AltCon, a)]
@@ -316,11 +317,44 @@ data CgAlts a = CgAlts {
 cgCodeAlts :: CgAlts CmmAGraphScoped
 cgCodeAlts =
   CgAlts {
-      cgAltsAlgsRhss  = cgAlgAltRhss
-    , cgAltsRhss      = cgAltRhss
+      cgAltsRhss      = cgAltRhss
     , cgAltsAlgSwitch = emitSwitch
     , cgAltsLitSwitch = emitCmmLitSwitch
     }
+
+cgLitAlts :: CgAlts CmmLit
+cgLitAlts =
+  CgAlts {
+      cgAltsRhss      = \_ _ alts -> do
+                          dflags <- getDynFlags
+                          let
+                            mlits =
+                              sequence (map (literalAlt_maybe dflags) alts)
+                            (cons, _, _) = unzip3 alts
+                          case mlits of
+                            Just lits -> pure (zip cons lits)
+                            Nothing   -> error "fuck"
+
+    , cgAltsAlgSwitch = \scrut alts deflt lo hi -> do
+                          dflags <- getDynFlags
+                          let switch = mkSwitchTargets False
+                                         (fromIntegral lo, fromIntegral hi)
+                                         deflt
+                                         (Map.fromList [(fromIntegral k, v) | (k,v) <- alts])
+
+                          tmp <- newTemp (cmmLitType dflags (snd (head alts)))
+                          emit $ mkAssign (CmmLocal tmp) (CmmCondLit scrut switch)
+                          _ <- emitReturn (pure (CmmReg (CmmLocal tmp)))
+                          return ()
+
+    , cgAltsLitSwitch = undefined
+    }
+
+literalAlt_maybe :: DynFlags -> StgAlt -> Maybe CmmLit
+literalAlt_maybe dflags (_, _, expr) =
+  case expr of
+    StgLit lit -> Just (mkSimpleLit dflags lit)
+    _          -> Nothing
 
 -------------------------------------
 cgCase :: CgAlts a -> StgExpr -> Id -> AltType -> [StgAlt] -> FCode ReturnKind
@@ -337,7 +371,7 @@ cgCase cg_alts (StgOpApp (StgPrimOp op) args _) bndr (AlgAlt tycon) alts
             ; emitAssign (CmmLocal tmp_reg)
                          (tagToClosure dflags tycon tag_expr) }
 
-       ; (mb_deflt, branches) <- cgAltsAlgsRhss cg_alts
+       ; (mb_deflt, branches) <- cgAlgAltRhss cg_alts
                                  (NoGcInAlts,AssignedDirectly)
                                  (NonVoid bndr) alts
                                  -- See Note [GC for conditionals]
@@ -640,7 +674,7 @@ cgAlts cg_alts gc_plan bndr (PrimAlt _) alts
 cgAlts cg_alts gc_plan bndr (AlgAlt tycon) alts
   = do  { dflags <- getDynFlags
 
-        ; (mb_deflt, branches) <- cgAltsAlgsRhss cg_alts gc_plan bndr alts
+        ; (mb_deflt, branches) <- cgAlgAltRhss cg_alts gc_plan bndr alts
 
         ; let fam_sz   = tyConFamilySize tycon
               bndr_reg = CmmLocal (idToReg dflags bndr)
@@ -687,11 +721,11 @@ cgAlts _ _ _ _ _ = panic "cgAlts"
 --   goto L1
 
 -------------------
-cgAlgAltRhss :: (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
-             -> FCode ( Maybe CmmAGraphScoped
-                      , [(ConTagZ, CmmAGraphScoped)] )
-cgAlgAltRhss gc_plan bndr alts
-  = do { tagged_cmms <- cgAltRhss gc_plan bndr alts
+cgAlgAltRhss :: CgAlts a -> (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
+             -> FCode ( Maybe a
+                      , [(ConTagZ, a)] )
+cgAlgAltRhss cg_alts gc_plan bndr alts
+  = do { tagged_cmms <- cgAltsRhss cg_alts gc_plan bndr alts
 
        ; let { mb_deflt = case tagged_cmms of
                            ((DEFAULT,rhs) : _) -> Just rhs

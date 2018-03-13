@@ -143,6 +143,7 @@ pprExpr9 e =
         CmmRegOff  reg off  -> parens (ppr reg <+> char '+' <+> int off)
         CmmStackSlot a off  -> parens (ppr a   <+> char '+' <+> int off)
         CmmMachOp mop args  -> genMachOp mop args
+        CmmCondLit e lits   -> ppr e
 
 genMachOp :: MachOp -> [CmmExpr] -> SDoc
 genMachOp mop args

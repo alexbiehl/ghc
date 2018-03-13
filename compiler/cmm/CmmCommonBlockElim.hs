@@ -159,6 +159,7 @@ hash_block block =
         hash_e (CmmMachOp _ es) = hash_list hash_e es -- pessimal - no operator check
         hash_e (CmmRegOff r i) = hash_reg r + cvt i
         hash_e (CmmStackSlot _ _) = 13
+        hash_e (CmmCondLit e _) = hash_e e
 
         hash_lit :: CmmLit -> Word32
         hash_lit (CmmInt i _) = fromInteger i

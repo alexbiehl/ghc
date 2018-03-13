@@ -993,6 +993,18 @@ getRegister' dflags _ (CmmLit lit)
            code dst = unitOL (MOV format (OpImm imm) (OpReg dst))
        return (Any format code)
 
+getRegister' dflags _ (CmmCondLits expr lits)
+  = do (reg,e_code) <- getNonClobberedReg (cmmOffset dflags expr offset)
+       -- getNonClobberedReg because it needs to survive across t_code
+
+       case switchTargetsToList lits of
+         [ lit1, lit2 ]
+
+
+
+
+         where (offset, ids) = switchTargetsToTable lits
+
 getRegister' _ _ other
     | isVecExpr other  = needLlvm
     | otherwise        = pprPanic "getRegister(x86)" (ppr other)

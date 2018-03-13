@@ -377,6 +377,7 @@ isTrivialCmmExpr :: CmmExpr -> Bool
 isTrivialCmmExpr (CmmLoad _ _)      = False
 isTrivialCmmExpr (CmmMachOp _ _)    = False
 isTrivialCmmExpr (CmmLit _)         = True
+isTrivialCmmExpr (CmmCondLit _ _)   = False
 isTrivialCmmExpr (CmmReg _)         = True
 isTrivialCmmExpr (CmmRegOff _ _)    = True
 isTrivialCmmExpr (CmmStackSlot _ _) = panic "isTrivialCmmExpr CmmStackSlot"
@@ -440,6 +441,7 @@ regsOverlap _ reg reg' = reg == reg'
 regUsedIn :: DynFlags -> CmmReg -> CmmExpr -> Bool
 regUsedIn dflags = regUsedIn_ where
   _   `regUsedIn_` CmmLit _         = False
+  reg `regUsedIn_` CmmCondLit e _   = reg `regUsedIn_` e
   reg `regUsedIn_` CmmLoad e  _     = reg `regUsedIn_` e
   reg `regUsedIn_` CmmReg reg'      = regsOverlap dflags reg reg'
   reg `regUsedIn_` CmmRegOff reg' _ = regsOverlap dflags reg reg'
