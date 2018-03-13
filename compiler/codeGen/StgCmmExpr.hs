@@ -37,6 +37,7 @@ import Cmm
 import CmmInfo
 import CoreSyn
 import DataCon
+import DynFlags
 import ForeignCall
 import Id
 import Literal          ( Literal )
@@ -82,9 +83,22 @@ cgExpr (StgLetNoEscape binds expr) =
      ; return r }
 
 cgExpr (StgCase expr bndr alt_type alts) =
-  cgCase cgCodeAlts expr bndr alt_type alts
+  do { dflags <- getDynFlags
+     ; case literalAlts_maybe dflags alts of
+         Just _  -> cgCase cgCodeAlts expr bndr alt_type alts -- TODO: build cgLitAlts
+         Nothing -> cgCase cgCodeAlts expr bndr alt_type alts
+     }
 
 cgExpr (StgLam {}) = panic "cgExpr: StgLam"
+
+literalAlts_maybe :: DynFlags -> [StgAlt] -> Maybe [CmmLit]
+literalAlts_maybe dflags = sequence . map (literalAlt_maybe dflags)
+
+literalAlt_maybe :: DynFlags -> StgAlt -> Maybe CmmLit
+literalAlt_maybe dflags (_, _, expr) =
+  case expr of
+    StgLit lit -> Just (mkSimpleLit dflags lit)
+    _          -> Nothing
 
 ------------------------------------------------------------------------
 --              Let no escape
