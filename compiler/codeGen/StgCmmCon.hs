@@ -276,7 +276,14 @@ bindConArgs (DataAlt con) base args
                  -- (CmmSink can optimize this, but it's cheap and common enough
                  -- to handle here)
                  return Nothing
-             | otherwise      = do
+
+             | isOneOcc (idOccInfo b) = do
+                 let
+                   tagged_load =
+                     cmmTaggedObjectLoad dflags base offset tag
+                 Just <$> bindArgToReg' dflags tagged_load
+
+             | otherwise = do
                  emit $ mkTaggedObjectLoad dflags (idToReg dflags arg) base offset tag
                  Just <$> bindArgToReg arg
 

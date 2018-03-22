@@ -16,7 +16,7 @@ module StgCmmEnv (
         addBindC, addBindsC,
 
         bindArgsToRegs, bindToReg, rebindToReg,
-        bindArgToReg, idToReg,
+        bindArgToReg, bindArgToReg', idToReg,
         getArgAmode, getNonVoidArgAmodes,
         getCgIdInfo,
         maybeLetNoEscape,
@@ -174,12 +174,17 @@ getNonVoidArgAmodes (arg:args)
 --        Interface functions for binding and re-binding names
 ------------------------------------------------------------------------
 
-bindToReg :: NonVoid Id -> LambdaFormInfo -> FCode LocalReg
+cgLocLocalReg :: DynFalgs -> NonVoid Id -> CmmExpr
+cgLocLocalReg nvid =
+  let reg = idToReg dflags nvid
+  in CmmReg (CmmLocal reg))
+
+bindToReg :: NonVoid Id -> CmmExpr -> LambdaFormInfo -> FCode LocalReg
 -- Bind an Id to a fresh LocalReg
-bindToReg nvid@(NonVoid id) lf_info
+bindToReg nvid@(NonVoid id) loc lf_info
   = do dflags <- getDynFlags
        let reg = idToReg dflags nvid
-       addBindC (mkCgIdInfo id lf_info (CmmReg (CmmLocal reg)))
+       addBindC (mkCgIdInfo id lf_info loc)
        return reg
 
 rebindToReg :: NonVoid Id -> FCode LocalReg
@@ -187,10 +192,15 @@ rebindToReg :: NonVoid Id -> FCode LocalReg
 -- get its LF info from the envt
 rebindToReg nvid@(NonVoid id)
   = do  { info <- getCgIdInfo id
-        ; bindToReg nvid (cg_lf info) }
+        ; bindToReg nvid (cgLocLocalReg nvid) (cg_lf info) }
 
 bindArgToReg :: NonVoid Id -> FCode LocalReg
-bindArgToReg nvid@(NonVoid id) = bindToReg nvid (mkLFArgument id)
+bindArgToReg nvid@(NonVoid id) =
+  bindToReg nvid (cgLocLocalReg nvid) (mkLFArgument id)
+
+bindArgToReg' :: NonVoid Id -> CmmExpr -> FCode LocalReg
+bindArgToReg' nvid@(NonVoid id) loc =
+  bindToReg nvid loc (mkLFArgument id)
 
 bindArgsToRegs :: [NonVoid Id] -> FCode [LocalReg]
 bindArgsToRegs args = mapM bindArgToReg args
