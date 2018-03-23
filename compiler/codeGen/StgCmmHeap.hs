@@ -35,6 +35,7 @@ import StgCmmProf (profDynAlloc, dynProfHdr, staticProfHdr)
 import StgCmmTicky
 import StgCmmClosure
 import StgCmmEnv
+import StgCmmForeign
 
 import MkGraph
 
@@ -156,8 +157,73 @@ emitSetDynHdr base info_ptr ccs
 hpStore :: CmmExpr -> [(CmmExpr, ByteOff)] -> FCode ()
 hpStore base vals = do
   dflags <- getDynFlags
-  sequence_ $
-    [ emitStore (cmmOffsetB dflags base off) val | (val,off) <- vals ]
+  mapM_ (cgStore dflags base) (groupStores dflags vals)
+
+data EmitStore
+  = SingleStore CmmExpr !ByteOff
+  | MultiStore  CmmExpr !ByteOff !ByteOff
+
+cgStore :: DynFlags -> CmmExpr -> EmitStore -> FCode ()
+cgStore dflags base store =
+  case store of
+    SingleStore val off ->
+      emitStore (cmmOffsetB dflags base off) val
+    MultiStore src size off ->
+      emitPrimCall
+        [ {- no results -} ]
+        (MO_Memcpy 8)
+        [ cmmOffsetB dflags base off
+        , src
+        , CmmLit (CmmInt (fromIntegral size) W32) ]
+
+groupStores :: DynFlags -> [(CmmExpr, ByteOff)] -> [EmitStore]
+groupStores dflags = concatMap toEmitStore . chunk is_consecutive
+  where
+    toEmitStore []           = []
+    toEmitStore [(val, off)] = [SingleStore val off]
+    toEmitStore xs@(x:_)     =
+      case x of
+        (CmmLoad src@(CmmRegOff _ _) _, dest_off) ->
+          let
+            size =
+              foldr (\(e, _) acc -> acc +
+                      widthInBytes (typeWidth (cmmExprType dflags e))) 0 xs
+          in [MultiStore src size dest_off]
+        _ -> undefined
+
+    chunk :: (a -> a -> Bool) -> [a] -> [[a]]
+    chunk p [] = []
+    chunk p xs =
+      let
+        (as, bs) = split p xs
+      in as : chunk p bs
+
+    split :: (a -> a -> Bool) -> [a] -> ([a], [a])
+    split p []  = ([] , [])
+    split p [x] = ([x], [])
+    split p (x:ys@(_:_)) = grab p x ys
+
+    grab :: (a -> a -> Bool) -> a -> [a] -> ([a], [a])
+    grab _ z []     = ([z], [])
+    grab p z xs@(y:ys) =
+      if p z y
+      then
+        let
+          (as, bs) = grab p y ys
+        in (z:as, bs)
+      else
+        ([z], xs)
+
+    is_consecutive
+        (CmmLoad (CmmRegOff reg1 src_off1)  ty1, dest_off1)
+        (CmmLoad (CmmRegOff reg2 src_off2) _ty2, dest_off2)
+      | reg1 == reg2
+      , src_off1  + widthInBytes (typeWidth ty1) == src_off2
+      , dest_off1 + widthInBytes (typeWidth ty1) == dest_off2
+      = True
+
+    is_consecutive _ _
+      = False
 
 -----------------------------------------------------------
 --              Layout of static closures

@@ -141,12 +141,12 @@ addToMemE rep ptr n
 -------------------------------------------------------------------------
 
 cmmTaggedObjectLoad
-  :: DynFlags -> LocalReg -> ByteOff -> DynTag -> CmmExpr
-cmmTaggedObjectLoad dflags base offset tag
-  = CmmLoad (cmmOfsetB dflags
-                       (CmmReg (CmmLOcal base))
+  :: DynFlags -> LocalReg -> CmmType -> ByteOff -> DynTag -> CmmExpr
+cmmTaggedObjectLoad dflags base ty offset tag
+  = CmmLoad (cmmOffsetB dflags
+                       (CmmReg (CmmLocal base))
                        (offset - tag))
-            (localRegType reg)
+            ty
 
 mkTaggedObjectLoad
   :: DynFlags -> LocalReg -> LocalReg -> ByteOff -> DynTag -> CmmAGraph
@@ -155,7 +155,7 @@ mkTaggedObjectLoad
 -- where K is fixed by 'reg'
 mkTaggedObjectLoad dflags reg base offset tag
   = mkAssign (CmmLocal reg)
-             (cmmTaggedObjectLoad dflags base offset tag)
+             (cmmTaggedObjectLoad dflags base (localRegType reg) offset tag)
 
 -------------------------------------------------------------------------
 --

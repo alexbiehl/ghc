@@ -29,6 +29,7 @@ import StgCmmLayout
 import StgCmmUtils
 import StgCmmClosure
 
+import BasicTypes (isOneOcc)
 import CmmExpr
 import CmmUtils
 import CLabel
@@ -279,9 +280,12 @@ bindConArgs (DataAlt con) base args
 
              | isOneOcc (idOccInfo b) = do
                  let
+                   reg =
+                     idToReg dflags arg
+
                    tagged_load =
-                     cmmTaggedObjectLoad dflags base offset tag
-                 Just <$> bindArgToReg' dflags tagged_load
+                     cmmTaggedObjectLoad dflags base (localRegType reg) offset tag
+                 Just <$> bindArgToReg' arg tagged_load
 
              | otherwise = do
                  emit $ mkTaggedObjectLoad dflags (idToReg dflags arg) base offset tag

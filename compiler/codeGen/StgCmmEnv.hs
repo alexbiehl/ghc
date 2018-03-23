@@ -174,33 +174,41 @@ getNonVoidArgAmodes (arg:args)
 --        Interface functions for binding and re-binding names
 ------------------------------------------------------------------------
 
-cgLocLocalReg :: DynFalgs -> NonVoid Id -> CmmExpr
-cgLocLocalReg nvid =
+cgLocLocalReg :: DynFlags -> NonVoid Id -> CmmExpr
+cgLocLocalReg dflags nvid =
   let reg = idToReg dflags nvid
-  in CmmReg (CmmLocal reg))
+  in CmmReg (CmmLocal reg)
 
-bindToReg :: NonVoid Id -> CmmExpr -> LambdaFormInfo -> FCode LocalReg
+bindToReg' :: NonVoid Id -> CmmExpr -> LambdaFormInfo -> FCode LocalReg
 -- Bind an Id to a fresh LocalReg
-bindToReg nvid@(NonVoid id) loc lf_info
+bindToReg' nvid@(NonVoid id) loc lf_info
   = do dflags <- getDynFlags
        let reg = idToReg dflags nvid
        addBindC (mkCgIdInfo id lf_info loc)
        return reg
 
+bindToReg :: NonVoid Id -> LambdaFormInfo -> FCode LocalReg
+bindToReg nvid@(NonVoid id) lf_info
+  = do dflags <- getDynFlags
+       bindToReg' nvid (cgLocLocalReg dflags nvid) lf_info
+
 rebindToReg :: NonVoid Id -> FCode LocalReg
 -- Like bindToReg, but the Id is already in scope, so
 -- get its LF info from the envt
 rebindToReg nvid@(NonVoid id)
-  = do  { info <- getCgIdInfo id
-        ; bindToReg nvid (cgLocLocalReg nvid) (cg_lf info) }
+  = do  { dflags <- getDynFlags
+        ; info <- getCgIdInfo id
+        ; bindToReg nvid (cg_lf info) }
 
 bindArgToReg :: NonVoid Id -> FCode LocalReg
-bindArgToReg nvid@(NonVoid id) =
-  bindToReg nvid (cgLocLocalReg nvid) (mkLFArgument id)
+bindArgToReg nvid@(NonVoid id)
+  = do { dflags <- getDynFlags
+       ; bindToReg nvid (mkLFArgument id)
+       }
 
 bindArgToReg' :: NonVoid Id -> CmmExpr -> FCode LocalReg
 bindArgToReg' nvid@(NonVoid id) loc =
-  bindToReg nvid loc (mkLFArgument id)
+  bindToReg' nvid loc (mkLFArgument id)
 
 bindArgsToRegs :: [NonVoid Id] -> FCode [LocalReg]
 bindArgsToRegs args = mapM bindArgToReg args
