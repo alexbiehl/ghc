@@ -78,7 +78,7 @@ cgOpApp (StgFCallOp fcall _) stg_args res_ty
   = cgForeignCall fcall stg_args res_ty
       -- Note [Foreign call results]
 
-cgOpApp (StgPrimOp CatchOp) [StgContArg _bndr body _, handler, _] _res_ty = do
+cgOpApp (StgPrimOp CatchOp) (StgContArg _bndr body _ : handler : _) _res_ty = do
   args' <- getNonVoidArgAmodes [handler]
   let
     handler_amode =
@@ -2435,7 +2435,9 @@ emitCatchFrame handler body
          off_exc_blocked = hdr + oFFSET_StgCatchFrame_exceptions_blocked dflags
 
          exc_blocked =
-           CmmRegOff currentTSOReg (oFFSET_StgTSO_flags dflags)
+           CmmMachOp
+             (mo_u_32ToWord dflags)
+             [CmmLoad (CmmRegOff currentTSOReg (oFFSET_StgTSO_flags dflags)) b32]
        --
        emitStore frame (mkLblExpr mkCatchInfoLabel)
        emitStore (cmmOffset dflags frame off_exc_blocked) exc_blocked

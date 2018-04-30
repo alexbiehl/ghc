@@ -12,7 +12,7 @@ generation.
 {-# LANGUAGE CPP #-}
 
 module StgSyn (
-        GenStgArg(..),
+        GenStgArg(..), stgIsContArg,
 
         GenStgTopBinding(..), GenStgBinding(..), GenStgExpr(..), GenStgRhs(..),
         GenStgAlt, AltType(..),
@@ -106,7 +106,11 @@ data GenStgBinding bndr occ
 data GenStgArg bndr occ
   = StgVarArg  occ
   | StgLitArg  Literal
-  | StgContArg bndr StgExpr Type
+  | StgContArg bndr (GenStgExpr bndr occ) Type
+
+stgIsContArg :: GenStgArg bndr occ -> Bool
+stgIsContArg StgContArg{} = True
+stgIsContArg _            = False
 
 -- | Does this constructor application refer to
 -- anything in a different *Windows* DLL?
