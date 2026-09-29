@@ -729,7 +729,7 @@ union NotifyCompletion {
 enum NotifyCompletionType {
     NotifyTSO  = 0, // thread-synchronous I/O
     NotifyMVar = 1, // async I/O with MVar notification
-    NotifyTVar = 2  // async I/O with TVar notification
+    NotifyTVar = 2  // async I/O with TVar notification, see performWriteTVar
 };
 
 /* A node in the leftist heap. */
@@ -737,8 +737,8 @@ typedef struct StgTimeoutQueue_ {
     StgHeader header;
 
     /* What to notify of the completion of the timeout, either a TSO,
-     * an MVar, or hopefully in future a TVar.
-     * The notify_type field below tells us which of these it is.
+     * an MVar (which gets () put into it) or a TVar Bool (which gets set to
+     * True). The notify_type field below tells us which of these it is.
      */
     union NotifyCompletion notify;
 
@@ -804,7 +804,7 @@ typedef struct {
     StgHeader header;
 
       // What to notify of the completion of the I/O operation, either a TSO,
-      // an MVar, or hopefully in future a TVar.
+      // an MVar or a TVar Bool (which gets set to True on completion).
       // The notify_type field below tells us which of these it is.
     union NotifyCompletion notify;
 

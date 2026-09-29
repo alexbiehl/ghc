@@ -199,6 +199,21 @@ void stmWriteTVar(Capability *cap,
                   StgTVar *tvar,
                   StgClosure *new_value);
 
+/*
+ * Write a new value to 'tvar' outside of any transaction, and wake up any
+ * threads that are blocked (in retry) waiting for it to change.
+ *
+ * Unlike stmWriteTVar this takes effect immediately and cannot fail. It is
+ * equivalent to committing a transaction that just writes to this one TVar.
+ * It is intended for RTS code that has no transaction context, such as the
+ * I/O managers notifying I/O or timeout completion. The caller must hold the
+ * capability. See Note [Non-transactional TVar writes] in STM.c.
+ */
+
+void performWriteTVar(Capability *cap,
+                      StgTVar *tvar,
+                      StgClosure *new_value);
+
 /*----------------------------------------------------------------------*/
 
 /* NULLs */

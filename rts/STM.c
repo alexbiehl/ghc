@@ -1547,3 +1547,91 @@ void stmWriteTVar(Capability *cap,
 }
 
 /*......................................................................*/
+
+/*
+Note [Non-transactional TVar writes]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+performWriteTVar writes a value to a TVar from RTS code that is not running
+inside any STM transaction. It is used by the in-RTS I/O managers to notify
+Haskell code about I/O and timeout completions via a TVar, in the same way
+that performTryPutMVar is used for MVar notification. See the NotifyTVar case
+of union NotifyCompletion in rts/storage/Closures.h.
+
+The write is equivalent to committing a transaction whose write set consists
+of just this one TVar and whose read set is empty. Such a commit can never
+fail validation, so a plain unconditional write is enough. We do however have
+to follow the same protocol as stmCommitTransaction to stay consistent with
+concurrent transactions:
+
+  * With STM_FG_LOCKS the TVar is locked while it is updated, so that no
+    transaction can commit to (or lock) the TVar in the middle of our update,
+    and so that transactions validating their read of this TVar see either
+    the old or the new value (or a lock, which they treat conservatively).
+    The lock on a TVar is represented by storing a pointer to a TRec into
+    its current_value field, so we need a TRec to lock with, even though we
+    never record any entries in it. We take one from the capability's free
+    list (alloc_stg_trec_header) and return it afterwards, which is cheap.
+
+  * The num_updates version counter must be incremented (STM_FG_LOCKS only)
+    since check_read_only relies on it to detect a TVar that was updated
+    (possibly back to the same value) between a transaction reading it and
+    committing.
+
+  * Each committed update consumes a commit token (getToken) because the
+    version counter wrap-around detection in stmCommitTransaction relies on
+    max_commits bounding the number of updates that can have occurred.
+
+  * Any threads blocked in `retry` watching this TVar are woken with
+    unpark_waiters_on, before we release the lock, exactly as in commit.
+    unpark_waiters_on uses tryWakeupThread, so the waiting threads may belong
+    to any capability.
+
+  * The heap write barriers are applied by unlock_tvar/lock_tvar
+    (dirty_TVAR and the non-moving collector's remembered set).
+
+Preconditions: the caller must hold the given capability, and the capability
+must not be in the middle of any STM operation of its own (this is true for
+RTS code called from the scheduler loop, such as the I/O managers).
+*/
+
+void performWriteTVar(Capability *cap,
+                      StgTVar *tvar,
+                      StgClosure *new_value) {
+  StgTRecHeader *trec;
+
+  TRACE("performWriteTVar(%p, %p)", tvar, new_value);
+
+  // We are about to commit one update, so consume a commit token.
+  // See the comment above TOKEN_BATCH_SIZE.
+  getToken(cap);
+
+#if defined(STM_FG_LOCKS)
+  // We need a TRec to represent the lock on the TVar, see
+  // Note [Non-transactional TVar writes].
+  trec = alloc_stg_trec_header(cap, NO_TREC);
+#else
+  // Without fine-grained locking the TRec is not used for locking.
+  trec = NO_TREC;
+#endif
+
+  StgClosure *old_value STG_UNUSED = lock_tvar(cap, trec, tvar);
+  ACQ_ASSERT(tvar_is_locked(tvar, trec));
+
+  TRACE("%p : writing %p to %p (previously %p), waking waiters",
+        trec, new_value, tvar, old_value);
+  unpark_waiters_on(cap, tvar);
+  IF_STM_FG_LOCKS({
+    // We have locked the TVar therefore nonatomic addition is sufficient
+    NONATOMIC_ADD(&tvar->num_updates, 1);
+  });
+  unlock_tvar(cap, trec, tvar, new_value, true);
+  ACQ_ASSERT(!tvar_is_locked(tvar, trec));
+
+#if defined(STM_FG_LOCKS)
+  free_stg_trec_header(cap, trec);
+#endif
+
+  TRACE("performWriteTVar done");
+}
+
+/*......................................................................*/

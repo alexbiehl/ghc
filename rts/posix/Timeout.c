@@ -13,6 +13,7 @@
 #include "Threads.h"
 #include "Schedule.h"
 #include "Prelude.h"
+#include "STM.h"
 
 #include "IOManager.h"
 #include "IOManagerInternals.h"
@@ -129,7 +130,11 @@ static void notifyTimeoutCompletion(CapIOManager *iomgr, StgTimeout *timeout)
             break;
 
         case NotifyTVar:
-            barf("notifyIOCompletion: TVar notification not yet supported");
+            /* The TVar is a completion flag: a TVar Bool that starts out
+             * False and which we set to True. Any threads blocked in retry
+             * waiting on it are woken up.
+             */
+            performWriteTVar(iomgr->cap, timeout->notify.tvar, True_closure);
             break;
     }
 }
