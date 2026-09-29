@@ -20,6 +20,7 @@
 #include "Threads.h"
 #include "Schedule.h"
 #include "Prelude.h"
+#include "STM.h"
 #include "RtsUtils.h"
 #include "rts/Time.h"
 #include "Trace.h"
@@ -279,7 +280,13 @@ static void notifyIOCompletion(CapIOManager *iomgr, StgAsyncIOOp *aiop)
             break;
 
         case NotifyTVar:
-            barf("selectbis iomgr: TVar notification not yet supported");
+            /* The TVar is a completion flag: a TVar Bool that starts out
+             * False and which we set to True. Any threads blocked in retry
+             * waiting on it are woken up. The outcome and result of the
+             * operation remain available in the aiop, which stays reachable
+             * from the Haskell side (unlike the TSO case above).
+             */
+            performWriteTVar(iomgr->cap, aiop->notify.tvar, True_closure);
             break;
     }
 }
